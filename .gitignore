@@ -1,0 +1,21 @@
+# 依赖与构建产物（Electron 桌面端用，网页部署不需要）
+node_modules/
+dist/
+release/
+build/
+
+# 客户端证书 / 图标中间产物
+*.p12
+*.pem
+icon.ico
+
+# 日志与系统文件
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地备份数据（含员工信息，切勿上传）
+backup/
+*.bak
