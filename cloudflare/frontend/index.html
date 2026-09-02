@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>庄骆贵一体化养护管理系统 · 云端控制台</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+  <div class="bg-grid"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">ZLG</span>
+      <div>
+        <h1>庄骆贵一体化养护管理系统</h1>
+        <p class="sub">Cloudflare Pages + Workers + D1</p>
+      </div>
+    </div>
+    <div class="status">
+      <span id="healthDot" class="dot"></span>
+      <span id="healthText">检测中…</span>
+      <span id="envBadge" class="badge">—</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- 登录 -->
+    <section class="card login" id="loginCard">
+      <h2>登录</h2>
+      <p class="hint">默认账号 <code>admin</code> / <code>zlg123</code>（仅本地验证用，上线前请改密）</p>
+      <div class="row">
+        <input id="username" placeholder="用户名" value="admin" autocomplete="username" />
+        <input id="password" type="password" placeholder="密码" value="zlg123" autocomplete="current-password" />
+        <button id="loginBtn" class="primary">登录</button>
+        <button id="logoutBtn" class="ghost hidden">退出</button>
+      </div>
+      <p id="userInfo" class="user-info"></p>
+    </section>
+
+    <!-- 资源 -->
+    <section class="card">
+      <div class="card-head">
+        <h2>业务数据</h2>
+        <div class="tabs" id="tabs"></div>
+      </div>
+
+      <div class="toolbar">
+        <input id="search" placeholder="关键字搜索…" />
+        <select id="filterField"></select>
+        <select id="filterValue"><option value="">全部</option></select>
+        <button id="reloadBtn" class="ghost">刷新</button>
+        <span class="spacer"></span>
+        <span id="totalText" class="muted"></span>
+      </div>
+
+      <div class="table-wrap">
+        <table id="dataTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <button id="prevBtn" class="ghost">上一页</button>
+        <span id="pageText" class="muted"></span>
+        <button id="nextBtn" class="ghost">下一页</button>
+      </div>
+    </section>
+
+    <!-- 新增 -->
+    <section class="card">
+      <h2>新增记录</h2>
+      <form id="createForm" class="form-grid"></form>
+      <div class="row">
+        <button id="createBtn" class="primary">提交新增</button>
+        <button type="button" id="resetBtn" class="ghost">清空</button>
+      </div>
+      <p class="hint">写操作需要登录；未登录时会返回 401。</p>
+    </section>
+
+    <!-- KV -->
+    <section class="card">
+      <h2>通用键值存储（KV）</h2>
+      <div class="row">
+        <input id="kvNs" placeholder="命名空间，如 ui-preferences" value="ui-preferences" />
+        <input id="kvKey" placeholder="键名" value="theme" />
+        <button id="kvGetBtn" class="ghost">读取</button>
+        <button id="kvDelBtn" class="danger">删除</button>
+      </div>
+      <textarea id="kvValue" rows="4" placeholder='JSON 值，例如 {"mode":"dark"}'></textarea>
+      <div class="row">
+        <button id="kvPutBtn" class="primary">写入 / 覆盖</button>
+        <button id="kvListBtn" class="ghost">列出该命名空间</button>
+      </div>
+      <pre id="kvOut" class="out"></pre>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

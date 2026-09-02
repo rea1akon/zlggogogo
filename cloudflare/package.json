@@ -1,0 +1,31 @@
+{
+  "name": "zlg-cloud",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "庄骆贵一体化养护管理系统 · Cloudflare Pages + Workers + D1 全栈工程",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n worker,web -c cyan,magenta \"npm:dev:worker\" \"npm:dev:web\"",
+    "dev:worker": "wrangler dev --port 8787 --ip 127.0.0.1",
+    "dev:web": "vite --config frontend/vite.config.js",
+    "build": "vite build --config frontend/vite.config.js",
+    "preview": "vite preview --config frontend/vite.config.js",
+    "db:create": "wrangler d1 create zlg_maintenance_db",
+    "db:migrate": "wrangler d1 migrations apply zlg_maintenance_db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply zlg_maintenance_db --remote",
+    "db:list": "wrangler d1 list",
+    "db:export": "wrangler d1 export zlg_maintenance_db --local --output ./dump.sql",
+    "verify": "node scripts/verify-api.mjs",
+    "hash-password": "node scripts/hash-password.mjs",
+    "deploy:worker": "wrangler deploy",
+    "deploy:pages": "npm run build && wrangler pages deploy frontend/dist --project-name zlg-maintenance"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "vite": "^6.0.11",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -19,3 +19,6 @@ desktop.ini
 # 本地备份数据（含员工信息，切勿上传）
 backup/
 *.bak
+
+# WorkBuddy 项目辅助目录
+.workbuddy/
