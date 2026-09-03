@@ -26,7 +26,7 @@ head_sampling_rate = 1
 [[d1_databases]]
 binding = "DB"
 database_name = "zlg_maintenance_db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "95186a56-46da-4cb6-8402-caa8d8e0a49e"
 migrations_dir = "migrations"
 
 # ------------------------------------------------------------
@@ -52,7 +52,7 @@ name = "zlg-maintenance-api"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "zlg_maintenance_db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "95186a56-46da-4cb6-8402-caa8d8e0a49e"
 migrations_dir = "migrations"
 
 [env.production.vars]
