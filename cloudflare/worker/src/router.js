@@ -5,7 +5,7 @@ import { ApiError, notFound, badRequest } from './lib/errors.js';
 import { getResource, resourceMeta, RESOURCES } from './resources.js';
 import * as crud from './handlers/crud.js';
 import * as kv from './handlers/kv.js';
-import { login, logout, currentUser, writeAuthEnabled, bootstrapAdmin, authStatus } from './lib/auth.js';
+import { login, logout, currentUser, requireWriteRole, bootstrapAdmin, authStatus } from './lib/auth.js';
 import { logOperation } from './lib/log.js';
 
 const RE_RESOURCE = /^\/api\/([a-zA-Z_]+)(?:\/([^/]+))?\/?$/;
@@ -25,10 +25,9 @@ function health(env) {
   return { status: 'ok', service: env.API_TITLE, version: env.API_VERSION, environment: env.ENVIRONMENT };
 }
 
-// 键值存储的写操作鉴权：未开启写鉴权时直接放行，开启后必须持有有效会话
+// 键值存储的写操作鉴权：未开启写鉴权时直接放行，开启后必须持有有效会话且非访客
 async function requireKvWrite(env, request) {
-  if (!writeAuthEnabled(env)) return null;
-  return currentUser(env, request);
+  return requireWriteRole(env, request);
 }
 
 export async function route(request, env) {
@@ -141,11 +140,11 @@ export async function route(request, env) {
   }
   const resource = getResource(resourceKey);
 
-  // 写操作鉴权
+  // 写操作鉴权（含访客只读守卫）
   const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
   let user = null;
-  if (isWrite && writeAuthEnabled(env)) {
-    user = await currentUser(env, request);
+  if (isWrite) {
+    user = await requireWriteRole(env, request);
   }
 
   // 批量写入：POST /api/:resource/bulk

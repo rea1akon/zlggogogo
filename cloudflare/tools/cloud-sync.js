@@ -43,6 +43,8 @@
   var online = false;
   var lastError = '';
   var pullTimer = null;
+  var readonly = false; // 访客只读模式：为 true 时不向云端推送任何改动
+  var READONLY_KEY = '__readonly_mode';
 
   var origSetItem = Storage.prototype.setItem;
   var origRemoveItem = Storage.prototype.removeItem;
@@ -111,6 +113,7 @@
     else if (state === 'ok') { text = '已同步 ' + new Date().toTimeString().slice(0, 5); color = '#66bb6a'; }
     else if (state === 'error') { text = '同步失败'; color = '#ef5350'; }
     else if (state === 'offline') { text = '离线模式'; color = '#9e9e9e'; }
+    else if (state === 'readonly') { text = '只读模式'; color = '#7dd3fc'; }
     el.textContent = text;
     el.style.color = color;
     el.title = lastError || '数据自动同步到云端';
@@ -212,11 +215,13 @@
 
   Storage.prototype.setItem = function (key, value) {
     origSetItem.call(this, key, value);
+    if (readonly) return; // 只读模式：本地仍写入，但不再上报云端
     if (this === localStorage && SYNC_SET[key]) markDirty(key);
   };
 
   Storage.prototype.removeItem = function (key) {
     origRemoveItem.call(this, key);
+    if (readonly) return;
     if (this === localStorage && SYNC_SET[key]) markDirty(key);
   };
 
@@ -265,6 +270,7 @@
 
   function flush() {
     if (syncing) return Promise.resolve();
+    if (readonly) return Promise.resolve(); // 只读模式：永不推送
     var keys = Object.keys(dirty);
     if (!keys.length) return Promise.resolve();
     if (!token) {
@@ -360,6 +366,11 @@
         'width:360px;padding:28px;border-radius:12px;background:#111827;' +
         'border:1px solid rgba(79,195,247,.3);box-shadow:0 18px 50px rgba(0,0,0,.6);color:#c8d6e5;';
 
+      var guestHtml = isSetup ? '' :
+        '<button id="__gateGuest" style="width:100%;margin-top:12px;padding:8px;border:none;border-radius:6px;'
+        + 'background:transparent;color:#7dd3fc;font-size:13px;cursor:pointer;text-decoration:underline;">'
+        + '访客浏览（只读，无需口令）</button>';
+
       box.innerHTML =
         '<h3 style="margin:0 0 8px;font-size:16px;color:#4fc3f7;font-weight:600;">' + title + '</h3>'
         + '<p style="margin:0 0 16px;font-size:13px;line-height:1.7;color:#9fb3c8;">' + hint + '</p>'
@@ -370,7 +381,8 @@
         + '<button id="__gateOk" style="width:100%;padding:10px;border:none;border-radius:6px;'
         + 'background:#1976d2;color:#fff;font-size:14px;cursor:pointer;">'
         + (isSetup ? '确定并启用云端同步' : '确定')
-        + '</button>';
+        + '</button>'
+        + guestHtml;
 
       wrap.appendChild(box);
       document.body.appendChild(wrap);
@@ -420,7 +432,62 @@
 
       btn.addEventListener('click', submit);
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+
+      var guestBtn = box.querySelector('#__gateGuest');
+      if (guestBtn) {
+        guestBtn.addEventListener('click', function () {
+          try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { /* 忽略 */ }
+          enterGuestMode(false);
+        });
+      }
     } catch (e) { /* 忽略 */ }
+  }
+
+  // ---------- 访客只读模式 ----------
+
+  function injectReadonlyStyle() {
+    if (document.getElementById('__readonlyStyle')) return;
+    try {
+      var s = document.createElement('style');
+      s.id = '__readonlyStyle';
+      s.textContent =
+        'body[data-readonly="true"] input,'
+        + 'body[data-readonly="true"] textarea,'
+        + 'body[data-readonly="true"] select {'
+        + 'background:#16203a !important;color:#8aa0b8 !important;pointer-events:none;'
+        + 'border-color:#2b3a52 !important;}'
+        + 'body[data-readonly="true"] button {opacity:.55 !important;}';
+      document.head.appendChild(s);
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function showReadonlyBanner() {
+    showBanner('只读模式：可查看数据，但任何修改都不会保存到云端。', '退出只读', function () {
+      try { localStorage.removeItem(READONLY_KEY); } catch (e) { /* 忽略 */ }
+      location.reload();
+    });
+  }
+
+  function applyReadonlyUi() {
+    try { document.body.setAttribute('data-readonly', 'true'); } catch (e) { /* 忽略 */ }
+    injectReadonlyStyle();
+    setStatus('readonly');
+    showReadonlyBanner();
+  }
+
+  // fromBoot=true 表示从页面加载时直接进入（已记录只读标记），不再二次刷新
+  function enterGuestMode(fromBoot) {
+    readonly = true;
+    online = pullAll();
+    if (fromBoot) {
+      applyReadonlyUi();
+      if (!online) setStatus('offline');
+      startPolling();
+      return;
+    }
+    // 来自按钮：记录标记并刷新，让原系统在云端数据预填完成后再渲染
+    try { origSetItem.call(localStorage, READONLY_KEY, '1'); } catch (e) { /* 忽略 */ }
+    location.reload();
   }
 
   // ---------- 启动 ----------
@@ -458,6 +525,11 @@
   }
 
   function boot() {
+    // 之前选择过访客只读：直接以只读模式进入，不再弹口令门
+    if (currentPassword() === '' && localStorage.getItem(READONLY_KEY) === '1') {
+      enterGuestMode(true);
+      return;
+    }
     try {
       online = pullAll();
       if (!online) {

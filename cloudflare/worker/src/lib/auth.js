@@ -117,6 +117,19 @@ export function writeAuthEnabled(env) {
 }
 
 /**
+ * 写操作权限守卫：
+ *   - 未开启写鉴权则直接放行（本机调试用）
+ *   - 已开启时要求持有有效会话，且角色不得为 viewer（访客只读）
+ * 返回当前用户对象，供后续记录操作人。
+ */
+export async function requireWriteRole(env, request) {
+  if (!writeAuthEnabled(env)) return null;
+  const user = await currentUser(env, request);
+  if (user.role === 'viewer') throw forbidden('访客只读模式，禁止修改数据');
+  return user;
+}
+
+/**
  * 首次初始化：创建第一个管理员账号并直接签发会话。
  * 仅当系统尚无任何用户时可用，一旦有账号此接口即永久关闭，避免被滥用。
  */
