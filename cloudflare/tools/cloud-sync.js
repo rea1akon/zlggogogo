@@ -373,10 +373,10 @@
         'width:360px;padding:28px;border-radius:12px;background:#111827;' +
         'border:1px solid rgba(79,195,247,.3);box-shadow:0 18px 50px rgba(0,0,0,.6);color:#c8d6e5;';
 
-      var guestHtml = isSetup ? '' :
-        '<button id="__gateGuest" style="width:100%;margin-top:12px;padding:8px;border:none;border-radius:6px;'
-        + 'background:transparent;color:#7dd3fc;font-size:13px;cursor:pointer;text-decoration:underline;">'
-        + '访客浏览（只读，无需口令）</button>';
+      // 口令门内不再放访客按钮；只留一个"跳过"链接，访客入口常驻主界面右下角
+      var guestHtml =
+        '<a id="__gateSkip" href="javascript:void(0)" style="display:block;margin-top:14px;text-align:center;'
+        + 'color:#64748b;font-size:12px;cursor:pointer;text-decoration:underline;">先进入主界面，稍后登录 →</a>';
 
       box.innerHTML =
         '<h3 style="margin:0 0 8px;font-size:16px;color:#4fc3f7;font-weight:600;">' + title + '</h3>'
@@ -441,17 +441,43 @@
       btn.addEventListener('click', submit);
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
 
-      var guestBtn = box.querySelector('#__gateGuest');
-      if (guestBtn) {
-        guestBtn.addEventListener('click', function () {
-          try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { /* 忽略 */ }
-          enterGuestMode(false);
+      var skipLink = box.querySelector('#__gateSkip');
+      if (skipLink) {
+        skipLink.addEventListener('click', function () {
+          // 跳过口令门：本会话内不再弹出，主界面右下角有常驻"访客浏览"入口
+          try { sessionStorage.setItem('__gateSkipped', '1'); } catch (e) { /* 忽略 */ }
+          if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
         });
       }
     } catch (e) { /* 忽略 */ }
   }
 
   // ---------- 访客只读模式 ----------
+
+  // 主界面右下角常驻"访客浏览"入口（口令门 z-index 更高，门关闭后即可见）
+  function injectGuestButton() {
+    if (document.getElementById('__guestBtn')) return;
+    try {
+      var b = document.createElement('button');
+      b.id = '__guestBtn';
+      b.type = 'button';
+      b.textContent = '👁 访客浏览（只读）';
+      b.style.cssText =
+        'position:fixed;right:14px;bottom:14px;z-index:99999;padding:8px 16px;'
+        + 'border:1px solid rgba(79,195,247,.45);border-radius:20px;'
+        + 'background:rgba(10,16,30,.88);color:#7dd3fc;font-size:13px;cursor:pointer;'
+        + 'font-family:"Microsoft YaHei",sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.4);';
+      b.addEventListener('click', function () { enterGuestMode(false); });
+      document.body.appendChild(b);
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function hideGuestButton() {
+    try {
+      var b = document.getElementById('__guestBtn');
+      if (b) b.style.display = 'none';
+    } catch (e) { /* 忽略 */ }
+  }
 
   function injectReadonlyStyle() {
     if (document.getElementById('__readonlyStyle')) return;
@@ -479,6 +505,7 @@
   function applyReadonlyUi() {
     try { document.body.setAttribute('data-readonly', 'true'); } catch (e) { /* 忽略 */ }
     injectReadonlyStyle();
+    hideGuestButton();
     setStatus('readonly');
     showReadonlyBanner();
   }
@@ -488,12 +515,15 @@
     readonly = true;
     online = pullAll();
     if (fromBoot) {
+      // 置原系统登录态：访客直达主界面，不被原登录页卡住
+      try { sessionStorage.setItem('isLoggedIn', 'true'); } catch (e) { /* 忽略 */ }
       applyReadonlyUi();
       if (!online) setStatus('offline');
       startPolling();
       return;
     }
-    // 来自按钮：记录标记并刷新，让原系统在云端数据预填完成后再渲染
+    // 来自按钮：先置登录态再刷新，让原系统直接进入主界面（云端数据已预填）
+    try { sessionStorage.setItem('isLoggedIn', 'true'); } catch (e) { /* 忽略 */ }
     try { origSetItem.call(localStorage, READONLY_KEY, '1'); } catch (e) { /* 忽略 */ }
     location.reload();
   }
@@ -505,7 +535,8 @@
     pullTimer = setInterval(function () { pullAsync(); }, PULL_INTERVAL);
   }
 
-  function probeAndGate() {
+  // silent=true：跳过过口令门的会话，仅做静默登录尝试，失败不弹门
+  function probeAndGate(silent) {
     fetch(API + '/auth/status', { headers: { Accept: 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (j) {
@@ -514,6 +545,11 @@
           // 本机存过口令，先静默验证一次
           login(currentPassword())
             .then(function () {
+              // 静默登录成功：移除口令门（含"正在连接…"占位门），直达主界面
+              try {
+                var g = document.getElementById('__cloudGate');
+                if (g && g.parentNode) g.parentNode.removeChild(g);
+              } catch (e) { /* 忽略 */ }
               startPolling();
               setStatus('ok');
               uploadAll();
@@ -523,34 +559,40 @@
             });
           return;
         }
+        if (silent) return;
         // 网络已通，不再显示"无法连接"，而是根据实际情况提示
         showGate({ isSetup: !initialized, reason: initialized ? '' : '' });
       })
       .catch(function (e) {
+        if (silent) return;
         // 只有 status 接口真的失败，才提示无法连接
         showGate({ isSetup: false, reason: '无法连接云端服务，请检查网络后刷新页面。(' + ((e && e.message) || '网络异常') + ')' });
       });
   }
 
   function boot() {
-    // 之前选择过访客只读：直接以只读模式进入，不再弹口令门
-    if (currentPassword() === '' && localStorage.getItem(READONLY_KEY) === '1') {
+    // 只读标记优先级最高（无论本机是否存过管理口令），否则点过访客浏览的设备会被口令门卡住
+    if (localStorage.getItem(READONLY_KEY) === '1') {
       enterGuestMode(true);
       return;
     }
-    // 关键：口令门立即渲染（不等任何网络请求），避免网络慢/抖动时露出原始登录页
-    showGate({ isSetup: false, reason: '正在连接云端服务…' });
+    // 主界面常驻访客入口（口令门关闭后可见）
+    injectGuestButton();
+    // 本会话内用户跳过过口令门：不再强制弹出，仅静默探测
+    var silent = false;
+    try { silent = sessionStorage.getItem('__gateSkipped') === '1'; } catch (e) { /* 忽略 */ }
+    if (!silent && currentPassword() === '') showGate({ isSetup: false, reason: '正在连接云端服务…' });
     try {
       online = pullAll();
       if (!online) {
         setStatus('offline');
         // kv 读取失败不直接阻塞；继续探测 auth/status，避免网络偶发抖动导致无法使用
       }
-      probeAndGate();
+      probeAndGate(silent);
     } catch (e) {
       online = false;
       setStatus('offline');
-      showGate({ isSetup: false, reason: '初始化失败：' + ((e && e.message) || '网络异常') });
+      if (!silent) showGate({ isSetup: false, reason: '初始化失败：' + ((e && e.message) || '网络异常') });
     }
 
     // 手机切后台 / 关闭页面时尽量把改动推出去
