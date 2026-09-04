@@ -5,7 +5,7 @@ import { ApiError, notFound, badRequest } from './lib/errors.js';
 import { getResource, resourceMeta, RESOURCES } from './resources.js';
 import * as crud from './handlers/crud.js';
 import * as kv from './handlers/kv.js';
-import { login, logout, currentUser, writeAuthEnabled } from './lib/auth.js';
+import { login, logout, currentUser, writeAuthEnabled, bootstrapAdmin } from './lib/auth.js';
 import { logOperation } from './lib/log.js';
 
 const RE_RESOURCE = /^\/api\/([a-zA-Z_]+)(?:\/([^/]+))?\/?$/;
@@ -23,6 +23,12 @@ async function readJson(request) {
 
 function health(env) {
   return { status: 'ok', service: env.API_TITLE, version: env.API_VERSION, environment: env.ENVIRONMENT };
+}
+
+// 键值存储的写操作鉴权：未开启写鉴权时直接放行，开启后必须持有有效会话
+async function requireKvWrite(env, request) {
+  if (!writeAuthEnabled(env)) return null;
+  return currentUser(env, request);
 }
 
 export async function route(request, env) {
@@ -61,6 +67,18 @@ export async function route(request, env) {
       if (method !== 'GET') return methodNotAllowed(request, env, 'GET');
       return ok({ user: await currentUser(env, request) });
     }
+    if (action === 'bootstrap') {
+      if (method !== 'POST') return methodNotAllowed(request, env, 'POST');
+      const body = await readJson(request);
+      const data = await bootstrapAdmin(env, body, request);
+      await logOperation(env, request, {
+        actor: data.user.username,
+        action: 'bootstrap',
+        targetType: 'user',
+        targetId: data.user.id,
+      });
+      return ok(data, {}, 201);
+    }
     throw notFound('未知的鉴权接口');
   }
 
@@ -74,18 +92,39 @@ export async function route(request, env) {
       if (method !== 'GET') return methodNotAllowed(request, env, 'GET');
       return ok(await kv.listNamespaces(env));
     }
-    if (ns && !key) {
-      if (method !== 'GET') return methodNotAllowed(request, env, 'GET');
-      return ok(await kv.listKeys(env, decodeURIComponent(ns)));
-    }
+
     const namespace = decodeURIComponent(ns);
+
+    // 批量写入：POST /api/kv/:ns/_bulk
+    if (key === '_bulk') {
+      if (method !== 'POST') return methodNotAllowed(request, env, 'POST');
+      await requireKvWrite(env, request);
+      const body = await readJson(request);
+      return ok(await kv.putMany(env, namespace, body?.items));
+    }
+
+    if (!key) {
+      if (method !== 'GET') return methodNotAllowed(request, env, 'GET');
+      // 带 keys 参数走批量读取：GET /api/kv/:ns?keys=a,b,c
+      const keysParam = url.searchParams.get('keys');
+      if (keysParam) {
+        const keys = keysParam.split(',').map((s) => s.trim()).filter(Boolean);
+        return ok(await kv.getMany(env, namespace, keys));
+      }
+      return ok(await kv.listKeys(env, namespace));
+    }
+
     const k = decodeURIComponent(key);
     if (method === 'GET') return ok(await kv.getValue(env, namespace, k));
     if (method === 'PUT' || method === 'POST') {
+      await requireKvWrite(env, request);
       const body = await readJson(request);
       return ok(await kv.putValue(env, namespace, k, body?.value));
     }
-    if (method === 'DELETE') return ok(await kv.removeValue(env, namespace, k));
+    if (method === 'DELETE') {
+      await requireKvWrite(env, request);
+      return ok(await kv.removeValue(env, namespace, k));
+    }
     return methodNotAllowed(request, env, 'GET, PUT, DELETE');
   }
 

@@ -1,6 +1,6 @@
 // 账号口令与会话。口令使用「随机 salt + SHA-256(salt:password)」存储，不存明文
 
-import { unauthorized, badRequest } from './errors.js';
+import { unauthorized, badRequest, forbidden, conflict } from './errors.js';
 
 const SESSION_TTL_HOURS = 12;
 
@@ -114,4 +114,54 @@ export async function logout(env, request) {
 /** 写操作是否需要登录（默认需要；设置 REQUIRE_AUTH=false 可在本机调试时放开） */
 export function writeAuthEnabled(env) {
   return String(env.REQUIRE_AUTH ?? 'true').toLowerCase() !== 'false';
+}
+
+/**
+ * 首次初始化：创建第一个管理员账号并直接签发会话。
+ * 仅当系统尚无任何用户时可用，一旦有账号此接口即永久关闭，避免被滥用。
+ */
+export async function bootstrapAdmin(env, body, request) {
+  const username = String(body?.username ?? 'admin').trim() || 'admin';
+  const password = String(body?.password ?? '');
+  const displayName = String(body?.display_name ?? '系统管理员').trim();
+
+  if (!password) throw badRequest('密码不能为空');
+  if (password.length < 6) throw badRequest('密码至少 6 位');
+
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM users`).first();
+  if (Number(row?.count ?? 0) > 0) {
+    throw forbidden('系统已完成初始化，此接口已永久关闭');
+  }
+
+  const salt = randomToken().slice(0, 16);
+  const passwordHash = await hashPassword(salt, password);
+  const now = new Date().toISOString();
+
+  let userId;
+  try {
+    const inserted = await env.DB.prepare(
+      `INSERT INTO users (username, password_hash, salt, display_name, role, area, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'admin', '片所本级', 'active', ?, ?)`
+    )
+      .bind(username, passwordHash, salt, displayName, now, now)
+      .run();
+    userId = inserted?.meta?.last_row_id;
+  } catch {
+    throw conflict('初始化失败，账号可能已存在');
+  }
+  if (!userId) throw conflict('初始化失败，请重试');
+
+  const token = randomToken();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_HOURS * 3600 * 1000).toISOString();
+  await env.DB.prepare(
+    `INSERT INTO sessions (token, user_id, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?)`
+  )
+    .bind(token, userId, expiresAt, clientIp(request), request.headers.get('User-Agent'))
+    .run();
+
+  return {
+    token,
+    expires_at: expiresAt,
+    user: { id: userId, username, display_name: displayName, role: 'admin', area: '片所本级' },
+  };
 }
