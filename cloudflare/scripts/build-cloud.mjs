@@ -17,7 +17,9 @@ const MAIN = '庄骆贵一体化养护管理系统V4.html';
 const STATIC_FILES = ['index.html', MAIN, 'script.js', 'style.css', 'back.mp4'];
 const ADAPTER_SRC = join(CLOUDFLARE_DIR, 'tools', 'cloud-sync.js');
 const ANCHOR = '<script src="script.js"></script>';
-const INJECTED = '<script src="cloud-sync.js"></script>\n    ' + ANCHOR;
+// 缓存版本号：每次构建自动更新（构建时间戳），确保浏览器不会使用旧版适配器
+const VER = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+const INJECTED = `<script src="cloud-sync.js?v=${VER}"></script>\n    ` + ANCHOR;
 
 function copyTree(src, dest) {
   mkdirSync(dest, { recursive: true });

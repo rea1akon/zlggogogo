@@ -343,16 +343,23 @@
         : (reason || '在别的设备上打开同一个网址，输入同一个口令即可看到相同的数据。');
 
       if (existing) {
-        // 只更新文案，保留用户输入焦点和按钮状态
-        try {
-          var h3 = existing.querySelector('h3');
-          var p = existing.querySelector('p');
-          if (h3) h3.textContent = title;
-          if (p) p.textContent = hint;
-          var err = existing.querySelector('#__gateErr');
-          if (err && opt.error) err.textContent = opt.error;
-        } catch (e) { /* 忽略 */ }
-        return;
+        var prevMode = existing.getAttribute('data-mode');
+        var nextMode = isSetup ? 'setup' : 'login';
+        if (prevMode !== nextMode) {
+          // 模式变化（如"连接中"→"登录"/"初始化"）：整门重建，确保访客按钮等元素正确
+          existing.parentNode.removeChild(existing);
+        } else {
+          // 只更新文案，保留用户输入焦点和按钮状态
+          try {
+            var h3 = existing.querySelector('h3');
+            var p = existing.querySelector('p');
+            if (h3) h3.textContent = title;
+            if (p) p.textContent = hint;
+            var err = existing.querySelector('#__gateErr');
+            if (err && opt.error) err.textContent = opt.error;
+          } catch (e) { /* 忽略 */ }
+          return;
+        }
       }
 
       var wrap = document.createElement('div');
@@ -385,6 +392,7 @@
         + guestHtml;
 
       wrap.appendChild(box);
+      wrap.setAttribute('data-mode', isSetup ? 'setup' : 'login');
       document.body.appendChild(wrap);
 
       var input = box.querySelector('#__gatePwd');
@@ -530,6 +538,8 @@
       enterGuestMode(true);
       return;
     }
+    // 关键：口令门立即渲染（不等任何网络请求），避免网络慢/抖动时露出原始登录页
+    showGate({ isSetup: false, reason: '正在连接云端服务…' });
     try {
       online = pullAll();
       if (!online) {
