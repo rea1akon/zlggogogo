@@ -462,8 +462,7 @@
       online = pullAll();
       if (!online) {
         setStatus('offline');
-        showGate({ isSetup: false, reason: '无法连接云端服务，请检查网络后刷新页面。' });
-        return;
+        // kv 读取失败不直接阻塞；继续探测 auth/status，避免网络偶发抖动导致无法使用
       }
       probeAndGate();
     } catch (e) {
