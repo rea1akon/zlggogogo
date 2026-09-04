@@ -5,7 +5,7 @@ import { ApiError, notFound, badRequest } from './lib/errors.js';
 import { getResource, resourceMeta, RESOURCES } from './resources.js';
 import * as crud from './handlers/crud.js';
 import * as kv from './handlers/kv.js';
-import { login, logout, currentUser, writeAuthEnabled, bootstrapAdmin } from './lib/auth.js';
+import { login, logout, currentUser, writeAuthEnabled, bootstrapAdmin, authStatus } from './lib/auth.js';
 import { logOperation } from './lib/log.js';
 
 const RE_RESOURCE = /^\/api\/([a-zA-Z_]+)(?:\/([^/]+))?\/?$/;
@@ -62,6 +62,10 @@ export async function route(request, env) {
     if (action === 'logout') {
       if (method !== 'POST') return methodNotAllowed(request, env, 'POST');
       return ok(await logout(env, request));
+    }
+    if (action === 'status') {
+      if (method !== 'GET') return methodNotAllowed(request, env, 'GET');
+      return ok(await authStatus(env));
     }
     if (action === 'me') {
       if (method !== 'GET') return methodNotAllowed(request, env, 'GET');

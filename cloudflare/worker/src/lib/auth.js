@@ -120,6 +120,12 @@ export function writeAuthEnabled(env) {
  * 首次初始化：创建第一个管理员账号并直接签发会话。
  * 仅当系统尚无任何用户时可用，一旦有账号此接口即永久关闭，避免被滥用。
  */
+/** 系统是否已完成初始化（前端据此决定是"设置口令"还是"输入口令"） */
+export async function authStatus(env) {
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM users`).first();
+  return { initialized: Number(row?.count ?? 0) > 0 };
+}
+
 export async function bootstrapAdmin(env, body, request) {
   const username = String(body?.username ?? 'admin').trim() || 'admin';
   const password = String(body?.password ?? '');

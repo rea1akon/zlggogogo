@@ -9,10 +9,21 @@ const CHUNK_SIZE = 48 * 1024; // 单片 48KB，留出足够安全余量
 const MAX_TOTAL_BYTES = 20 * 1024 * 1024; // 单键总量上限 20MB，防异常数据撑爆
 const MAX_BATCH_KEYS = 50;
 
+// 系统保留键：这些数据只能留在各自设备的本地存储里，禁止经接口读写。
+// 读取接口为公开可读（前端需在脚本执行前同步预填数据，无法携带凭证），
+// 因此口令类键一旦写入就会被任何人通过 GET 拿走。
+const RESERVED_KEYS = new Set([
+  'adminpassword', 'admin_password', 'password', 'pwd',
+  'token', 'secret', 'session', 'sessionid'
+]);
+
 function checkName(v, label) {
   const s = String(v ?? '').trim();
   if (!NAME_RE.test(s)) {
     throw badRequest(`${label} 只能包含中英文、数字、下划线或短横线，长度 1-64`);
+  }
+  if (RESERVED_KEYS.has(s.toLowerCase())) {
+    throw badRequest(`${label} 属于系统保留键，不允许通过云端接口读写`);
   }
   return s;
 }
