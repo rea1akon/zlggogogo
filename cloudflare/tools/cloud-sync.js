@@ -327,8 +327,27 @@
 
   function showGate(options) {
     var opt = options || {};
+    var existing = document.getElementById('__cloudGate');
     try {
-      if (document.getElementById('__cloudGate')) return;
+      var isSetup = !!opt.isSetup;
+      var reason = opt.reason || '';
+      var title = isSetup ? '首次使用 · 请设置管理口令' : '请输入云端管理口令';
+      var hint = isSetup
+        ? '这个口令用来保护云端数据，设置后请牢记。其他设备打开本网址时，输入同一个口令即可看到相同的数据。'
+        : (reason || '在别的设备上打开同一个网址，输入同一个口令即可看到相同的数据。');
+
+      if (existing) {
+        // 只更新文案，保留用户输入焦点和按钮状态
+        try {
+          var h3 = existing.querySelector('h3');
+          var p = existing.querySelector('p');
+          if (h3) h3.textContent = title;
+          if (p) p.textContent = hint;
+          var err = existing.querySelector('#__gateErr');
+          if (err && opt.error) err.textContent = opt.error;
+        } catch (e) { /* 忽略 */ }
+        return;
+      }
 
       var wrap = document.createElement('div');
       wrap.id = '__cloudGate';
@@ -341,20 +360,13 @@
         'width:360px;padding:28px;border-radius:12px;background:#111827;' +
         'border:1px solid rgba(79,195,247,.3);box-shadow:0 18px 50px rgba(0,0,0,.6);color:#c8d6e5;';
 
-      var isSetup = !!opt.isSetup;
       box.innerHTML =
-        '<h3 style="margin:0 0 8px;font-size:16px;color:#4fc3f7;font-weight:600;">'
-        + (isSetup ? '首次使用 · 请设置管理口令' : '请输入云端管理口令')
-        + '</h3>'
-        + '<p style="margin:0 0 16px;font-size:13px;line-height:1.7;color:#9fb3c8;">'
-        + (isSetup
-          ? '这个口令用来保护云端数据，设置后请牢记。<br>其他设备打开本网址时，输入同一个口令即可看到相同的数据。'
-          : (opt.reason || '在别的设备上打开同一个网址，输入同一个口令即可看到相同的数据。'))
-        + '</p>'
+        '<h3 style="margin:0 0 8px;font-size:16px;color:#4fc3f7;font-weight:600;">' + title + '</h3>'
+        + '<p style="margin:0 0 16px;font-size:13px;line-height:1.7;color:#9fb3c8;">' + hint + '</p>'
         + '<input id="__gatePwd" type="password" placeholder="' + (isSetup ? '口令至少 6 位' : '请输入口令')
         + '" style="width:100%;box-sizing:border-box;padding:10px;border-radius:6px;'
         + 'border:1px solid #2b3a52;background:#0a0e1a;color:#e6f1fb;font-size:14px;outline:none;" />'
-        + '<div id="__gateErr" style="min-height:18px;margin-top:8px;font-size:12px;color:#ef5350;"></div>'
+        + '<div id="__gateErr" style="min-height:18px;margin-top:8px;font-size:12px;color:#ef5350;">' + (opt.error || '') + '</div>'
         + '<button id="__gateOk" style="width:100%;padding:10px;border:none;border-radius:6px;'
         + 'background:#1976d2;color:#fff;font-size:14px;cursor:pointer;">'
         + (isSetup ? '确定并启用云端同步' : '确定')
@@ -436,10 +448,12 @@
             });
           return;
         }
-        showGate({ isSetup: !initialized });
+        // 网络已通，不再显示"无法连接"，而是根据实际情况提示
+        showGate({ isSetup: !initialized, reason: initialized ? '' : '' });
       })
-      .catch(function () {
-        showGate({ isSetup: false, reason: '无法连接云端服务，请检查网络后刷新页面。' });
+      .catch(function (e) {
+        // 只有 status 接口真的失败，才提示无法连接
+        showGate({ isSetup: false, reason: '无法连接云端服务，请检查网络后刷新页面。(' + ((e && e.message) || '网络异常') + ')' });
       });
   }
 
@@ -455,7 +469,7 @@
     } catch (e) {
       online = false;
       setStatus('offline');
-      showGate({ isSetup: false, reason: '初始化失败，请检查网络后刷新页面。' });
+      showGate({ isSetup: false, reason: '初始化失败：' + ((e && e.message) || '网络异常') });
     }
 
     // 手机切后台 / 关闭页面时尽量把改动推出去
