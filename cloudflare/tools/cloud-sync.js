@@ -421,13 +421,7 @@
         'position:relative;width:360px;padding:28px;border-radius:12px;background:#111827;' +
         'border:1px solid rgba(79,195,247,.3);box-shadow:0 18px 50px rgba(0,0,0,.6);color:#c8d6e5;';
 
-      var close = document.createElement('span');
-      close.textContent = '×';
-      close.title = '关闭（继续以访客身份浏览）';
-      close.style.cssText =
-        'position:absolute;right:12px;top:8px;font-size:20px;line-height:1;color:#64748b;cursor:pointer;';
-      close.addEventListener('click', hideLogin);
-      box.appendChild(close);
+      // 登录界面即入口：不提供关闭按钮，避免进入既无编辑权限、又无法同步的中间状态
 
       var inputCss =
         'width:100%;box-sizing:border-box;padding:10px;border-radius:6px;'
@@ -444,8 +438,10 @@
         + (opt.error || '') + '</div>'
         + '<button id="__gateOk" style="width:100%;padding:10px;border:none;border-radius:6px;'
         + 'background:#1976d2;color:#fff;font-size:14px;cursor:pointer;">登 录</button>'
-        + '<a id="__gateGuest" href="javascript:void(0)" style="display:block;margin-top:14px;text-align:center;'
-        + 'color:#7dd3fc;font-size:12px;cursor:pointer;text-decoration:underline;">以访客身份浏览（只读）→</a>';
+        + '<div style="margin:14px 0 10px;text-align:center;font-size:11px;color:#475569;">— 或 —</div>'
+        + '<button id="__gateGuest" type="button" style="width:100%;padding:10px;border-radius:6px;'
+        + 'border:1px solid rgba(125,211,252,.5);background:transparent;color:#7dd3fc;'
+        + 'font-size:14px;cursor:pointer;">👁 访客进入（只读，无需密码）</button>';
 
       wrap.appendChild(box);
       document.body.appendChild(wrap);
@@ -482,9 +478,9 @@
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
       userInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') input.focus(); });
 
-      var guestLink = box.querySelector('#__gateGuest');
-      if (guestLink) {
-        guestLink.addEventListener('click', function () { enterGuestMode(false); });
+      var guestBtn = box.querySelector('#__gateGuest');
+      if (guestBtn) {
+        guestBtn.addEventListener('click', function () { enterGuestMode(false); });
       }
     } catch (e) { /* 忽略 */ }
   }
@@ -539,6 +535,8 @@
     }
     // 来自按钮：先置登录态再刷新，让原系统直接进入主界面（云端数据已预填）
     try { sessionStorage.setItem('isLoggedIn', 'true'); } catch (e) { /* 忽略 */ }
+    // 标记本标签页会话为访客，刷新后仍是访客（新开页面则回到登录界面）
+    try { sessionStorage.setItem('__guestSession', '1'); } catch (e) { /* 忽略 */ }
     try { origSetItem.call(localStorage, READONLY_KEY, '1'); } catch (e) { /* 忽略 */ }
     location.reload();
   }
@@ -572,11 +570,16 @@
       savedToken = localStorage.getItem(TOKEN_KEY);
     } catch (e) { /* 忽略 */ }
 
-    // 启动不弹任何登录框：默认直接以访客（只读）身份进入系统
-    if (savedIdentity === 'guest' || localStorage.getItem(READONLY_KEY) === '1') {
+    // 访客标记仅在本标签页会话内有效（点"访客进入"后刷新用），新开页面一律回登录界面
+    var guestSession = false;
+    try { guestSession = sessionStorage.getItem('__guestSession') === '1'; } catch (e) { /* 忽略 */ }
+
+    if (guestSession && (savedIdentity === 'guest' || localStorage.getItem(READONLY_KEY) === '1')) {
       enterGuestMode(true);
       return;
     }
+    // 新会话：清掉上一轮的访客标记，保证打开网址先看到登录界面
+    try { origRemoveItem.call(localStorage, READONLY_KEY); } catch (e) { /* 忽略 */ }
 
     identity = 'guest';
     updateIdentityBar();
@@ -593,12 +596,12 @@
           startPolling();
         })
         .catch(function () {
-          // 会话失效：降级为访客只读，不打扰用户
           clearSession();
-          enterGuestMode(true);
+          updateIdentityBar();
+          showLogin({ error: '登录已过期，请重新登录' });
         });
     } else {
-      enterGuestMode(true);
+      showLogin();
     }
 
     // 手机切后台 / 关闭页面时尽量把改动推出去
