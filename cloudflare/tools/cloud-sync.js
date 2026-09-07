@@ -23,6 +23,14 @@
   var APP_VERSION = '__ZLG_VERSION_FULL__';
   console.log('[zlg-cloud-sync] version', CLOUD_SYNC_VERSION, APP_VERSION);
 
+  // 页面加载瞬间先隐藏原登录卡片，避免用户看到「无访客按钮/无版本号」的原始界面
+  // 等适配器完成改造（注入访客按钮、版本号、预填 admin）后再淡入显示
+  var loginHideStyle = document.createElement('style');
+  loginHideStyle.id = '__zlgLoginHide';
+  loginHideStyle.textContent =
+    '.login-box{opacity:0 !important;visibility:hidden !important;transition:none !important;animation:none !important;}';
+  document.head.appendChild(loginHideStyle);
+
   var NS = 'zlg';
   var API = '/api';
   var PWD_KEY = 'adminPassword'; // 已废弃：系统不再使用数据口令，仅用于清理历史残留
@@ -416,10 +424,30 @@
 
   // 在原登录卡片内注入"访客进入"按钮，并监听登录表单：
   // 输入 admin/zlg@123 通过原系统校验 = 管理员，同时静默登录云端获取同步凭证
+  function revealLoginBox() {
+    try {
+      var box = document.querySelector('.login-box');
+      if (box) {
+        box.style.transition = 'opacity .25s ease, visibility .25s ease';
+        box.style.visibility = 'visible';
+        box.style.opacity = '1';
+      }
+      var hs = document.getElementById('__zlgLoginHide');
+      if (hs) hs.remove();
+    } catch (e) { /* 忽略 */ }
+  }
+
   function hookLoginUi() {
     var form = document.getElementById('loginForm');
     if (!form || form.getAttribute('data-cloud-hooked') === '1') return;
     form.setAttribute('data-cloud-hooked', '1');
+
+    // 预填管理员账号（固定 admin），减少用户输入
+    var uEl = document.getElementById('loginUsername');
+    if (uEl && !uEl.value) uEl.value = 'admin';
+
+    // 确保版本号徽标已注入（它依赖 login-footer，可能与 form 同时就绪）
+    injectVersionBadge();
 
     // 访客进入按钮（贴合原登录卡片的浅色风格）
     if (!document.getElementById('__guestEntry')) {
@@ -436,6 +464,9 @@
       g.addEventListener('click', function () { enterGuestMode(false); });
       form.parentNode.insertBefore(g, form.nextSibling);
     }
+
+    // 改造完成，淡入显示登录卡片
+    revealLoginBox();
 
     // 登录表单提交：读取输入的账号密码静默登录云端（原系统校验逻辑保持不变）
     form.addEventListener('submit', function () {
@@ -476,6 +507,8 @@
         hookLoginUi();
       } else if (tries > 100) {
         clearInterval(timer); // 最多等 20 秒
+        // 兜底：如果一直等不到登录表单，至少把登录框显示出来，避免白屏
+        revealLoginBox();
       }
     }, 200);
   }

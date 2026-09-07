@@ -46,15 +46,19 @@ for (const name of STATIC_FILES) {
 }
 
 // 读取项目版本配置并注入到适配器，确保登录页版本号从单一配置源读取
-let versionFull = 'V7.3';
+let versionShort = 'V7.5';
+let versionFull = 'V7.5 (build unknown)';
 try {
   const v = JSON.parse(readFileSync(VERSION_JSON, 'utf8'));
+  versionShort = v.version || versionShort;
   versionFull = v.full || v.version || versionFull;
 } catch (e) {
   console.warn(`⚠️  未读取到版本配置 ${VERSION_JSON}，使用默认版本号`);
 }
 const adapterSrc = readFileSync(ADAPTER_SRC, 'utf8');
-const adapterOut = adapterSrc.replace(/__ZLG_VERSION_FULL__/g, versionFull);
+const adapterOut = adapterSrc
+  .replace(/__ZLG_VERSION_FULL__/g, versionFull)
+  .replace(/var CLOUD_SYNC_VERSION = '[^']*';/, `var CLOUD_SYNC_VERSION = '${versionShort}';`);
 writeFileSync(join(OUT, 'cloud-sync.js'), adapterOut, 'utf8');
 
 // 同时把版本配置复制到产物根目录，便于外部读取
