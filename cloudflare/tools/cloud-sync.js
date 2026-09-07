@@ -26,8 +26,9 @@
   var MAX_FAIL = 3;
 
   // 需要跨设备同步的业务数据键，与原系统 script.js 中的常量一一对应
+  // 注意：hr_management_auth（登录凭证）不参与云同步，由各设备本地固定为 admin/zlg@123
   var SYNC_KEYS = [
-    'hr_management_employees', 'hr_management_auth', 'hr_management_local_data',
+    'hr_management_employees', 'hr_management_local_data',
     'vehicle_info_data', 'vehicle_repair_data', 'vehicle_mileage_data', 'vehicle_import_history',
     'toilet_data', 'toilet_import_history',
     'project_data', 'project_import_history',
@@ -318,11 +319,10 @@
         lastError = (err && err.message) || '未知错误';
         token = null;
         setStatus('error');
-        // 会话失效（过期/被踢）时回到登录界面，避免改动静默丢失
+        // 会话失效（过期/被踢）时提示重新登录，修改暂存本地不丢失
         if (/凭证|登录|未授权|权限/.test(lastError)) {
           clearSession();
-          updateIdentityBar();
-          showLogin({ error: '登录已失效，请重新登录' });
+          showBanner('登录已失效：修改已暂存本机，重新登录后将自动同步。', '重新登录', backToLogin);
         }
         var dead = [];
         keys.forEach(function (k) {
@@ -367,7 +367,20 @@
   function updateIdentityBar() {
     var el = ensureIdentityBar();
     if (!el) return;
+
+    // 登录界面阶段不显示身份条（尚未确定身份）
+    var loggedIn = false;
+    try { loggedIn = sessionStorage.getItem('isLoggedIn') === 'true'; } catch (e) { /* 忽略 */ }
+    if (!readonly && !loggedIn) {
+      el.style.display = 'none';
+      return;
+    }
+    el.style.display = 'flex';
+
     var isAdmin = identity === 'admin';
+    var stateKey = identity + '|' + (identityUser || '') + '|' + readonly + '|' + loggedIn;
+    if (el.getAttribute('data-state') === stateKey) return; // 状态未变，避免重建导致闪烁
+    el.setAttribute('data-state', stateKey);
     el.innerHTML = '';
 
     var label = document.createElement('span');
@@ -385,104 +398,72 @@
       'background:transparent;color:#94a3b8;font-size:11px;cursor:pointer;';
     btn.addEventListener('click', function () {
       if (isAdmin) enterGuestMode(false);
-      else showLogin();
+      else backToLogin();
     });
     el.appendChild(btn);
   }
 
-  // ---------- 管理员登录界面（全系统一套数据，不设数据口令） ----------
+  // ---------- 原系统登录界面挂钩（不弹任何自定义窗口） ----------
 
-  function hideLogin() {
-    try {
-      var g = document.getElementById('__cloudGate');
-      if (g && g.parentNode) g.parentNode.removeChild(g);
-    } catch (e) { /* 忽略 */ }
+  // 在原登录卡片内注入"访客进入"按钮，并监听登录表单：
+  // 输入 admin/zlg@123 通过原系统校验 = 管理员，同时静默登录云端获取同步凭证
+  function hookLoginUi() {
+    var form = document.getElementById('loginForm');
+    if (!form || form.getAttribute('data-cloud-hooked') === '1') return;
+    form.setAttribute('data-cloud-hooked', '1');
+
+    // 访客进入按钮（贴合原登录卡片的浅色风格）
+    if (!document.getElementById('__guestEntry')) {
+      var g = document.createElement('button');
+      g.id = '__guestEntry';
+      g.type = 'button';
+      g.textContent = '👁 访客进入（只读浏览）';
+      g.style.cssText =
+        'display:block;width:100%;margin-top:12px;padding:11px;border-radius:8px;'
+        + 'border:1px solid #c7d2fe;background:#ffffff;color:#6366f1;'
+        + 'font-size:14px;cursor:pointer;font-family:inherit;transition:background .15s;';
+      g.addEventListener('mouseenter', function () { g.style.background = '#eef2ff'; });
+      g.addEventListener('mouseleave', function () { g.style.background = '#ffffff'; });
+      g.addEventListener('click', function () { enterGuestMode(false); });
+      form.parentNode.insertBefore(g, form.nextSibling);
+    }
+
+    // 登录表单提交：读取输入的账号密码静默登录云端（原系统校验逻辑保持不变）
+    form.addEventListener('submit', function () {
+      var uEl = document.getElementById('loginUsername');
+      var pEl = document.getElementById('loginPassword');
+      var u = ((uEl && uEl.value) || '').trim();
+      var p = (pEl && pEl.value) || '';
+      if (!u || !p) return;
+      login(u, p)
+        .then(function () {
+          setStatus('ok');
+          startPolling();
+        })
+        .catch(function () {
+          // 云端登录失败不影响本地使用；修改暂存本地，待网络恢复后同步
+        });
+      // 原系统校验通过后会置登录态：延迟刷新左下角身份条
+      setTimeout(function () {
+        var loggedIn = false;
+        try { loggedIn = sessionStorage.getItem('isLoggedIn') === 'true'; } catch (e) { /* 忽略 */ }
+        if (loggedIn) {
+          identity = 'admin';
+          identityUser = u;
+          updateIdentityBar();
+        }
+      }, 1000);
+    }, true);
   }
 
-  function showLogin(options) {
-    var opt = options || {};
+  // 访客 -> 回到登录界面（清除访客与登录态后刷新）
+  function backToLogin() {
     try {
-      var existing = document.getElementById('__cloudGate');
-      if (existing) {
-        var errBox = existing.querySelector('#__gateErr');
-        if (errBox && opt.error) errBox.textContent = opt.error;
-        existing.style.display = 'flex';
-        return;
-      }
-
-      var wrap = document.createElement('div');
-      wrap.id = '__cloudGate';
-      wrap.style.cssText =
-        'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;' +
-        'background:rgba(6,10,20,.96);font-family:"Microsoft YaHei",sans-serif;';
-
-      var box = document.createElement('div');
-      box.style.cssText =
-        'position:relative;width:360px;padding:28px;border-radius:12px;background:#111827;' +
-        'border:1px solid rgba(79,195,247,.3);box-shadow:0 18px 50px rgba(0,0,0,.6);color:#c8d6e5;';
-
-      // 登录界面即入口：不提供关闭按钮，避免进入既无编辑权限、又无法同步的中间状态
-
-      var inputCss =
-        'width:100%;box-sizing:border-box;padding:10px;border-radius:6px;'
-        + 'border:1px solid #2b3a52;background:#0a0e1a;color:#e6f1fb;font-size:14px;outline:none;';
-
-      box.innerHTML =
-        '<h3 style="margin:0 0 8px;font-size:16px;color:#4fc3f7;font-weight:600;">管理员登录</h3>'
-        + '<p style="margin:0 0 16px;font-size:13px;line-height:1.7;color:#9fb3c8;">'
-        + '全系统共用一套数据。登录后即可编辑；不登录可直接以访客身份浏览。</p>'
-        + '<input id="__gateUser" value="' + ADMIN_USER + '" autocomplete="username" style="' + inputCss + '" />'
-        + '<input id="__gatePwd" type="password" placeholder="请输入密码" autocomplete="current-password" '
-        + 'style="' + inputCss + 'margin-top:10px;" />'
-        + '<div id="__gateErr" style="min-height:18px;margin-top:8px;font-size:12px;color:#ef5350;">'
-        + (opt.error || '') + '</div>'
-        + '<button id="__gateOk" style="width:100%;padding:10px;border:none;border-radius:6px;'
-        + 'background:#1976d2;color:#fff;font-size:14px;cursor:pointer;">登 录</button>'
-        + '<div style="margin:14px 0 10px;text-align:center;font-size:11px;color:#475569;">— 或 —</div>'
-        + '<button id="__gateGuest" type="button" style="width:100%;padding:10px;border-radius:6px;'
-        + 'border:1px solid rgba(125,211,252,.5);background:transparent;color:#7dd3fc;'
-        + 'font-size:14px;cursor:pointer;">👁 访客进入（只读，无需密码）</button>';
-
-      wrap.appendChild(box);
-      document.body.appendChild(wrap);
-
-      var userInput = box.querySelector('#__gateUser');
-      var input = box.querySelector('#__gatePwd');
-      var err = box.querySelector('#__gateErr');
-      var btn = box.querySelector('#__gateOk');
-      input.focus();
-
-      function submit() {
-        var pwd = (input.value || '').trim();
-        if (!pwd) { err.textContent = '请输入密码'; return; }
-        btn.disabled = true;
-        btn.textContent = '登录中…';
-        err.textContent = '';
-        login((userInput.value || ADMIN_USER).trim(), pwd)
-          .then(function () {
-            hideLogin();
-            setStatus('ok');
-            startPolling();
-            showBanner('已以管理员身份登录，修改将同步到云端。', null, null);
-            setTimeout(hideBanner, 3000);
-          })
-          .catch(function (e) {
-            err.textContent = (e && e.message) || '登录失败，请重试';
-            btn.disabled = false;
-            btn.textContent = '登 录';
-            input.select();
-          });
-      }
-
-      btn.addEventListener('click', submit);
-      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
-      userInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') input.focus(); });
-
-      var guestBtn = box.querySelector('#__gateGuest');
-      if (guestBtn) {
-        guestBtn.addEventListener('click', function () { enterGuestMode(false); });
-      }
+      sessionStorage.removeItem('isLoggedIn');
+      sessionStorage.removeItem('__guestSession');
     } catch (e) { /* 忽略 */ }
+    try { localStorage.removeItem(READONLY_KEY); } catch (e) { /* 忽略 */ }
+    location.reload();
   }
 
   // ---------- 访客只读模式 ----------
@@ -504,9 +485,7 @@
   }
 
   function showReadonlyBanner() {
-    showBanner('访客只读模式：可查看全部数据，修改不会保存。如需编辑请点左下角「管理员登录」。', '管理员登录', function () {
-      showLogin();
-    });
+    showBanner('访客只读模式：可查看全部数据，修改不会保存。', '管理员登录', backToLogin);
     // 提示条 5 秒后自动收起，不遮挡界面
     setTimeout(hideBanner, 5000);
   }
@@ -560,48 +539,41 @@
   }
 
   function boot() {
-    // 清理历史"数据口令"残留：系统已改为固定账号登录，不再使用数据口令
+    // 清理历史"数据口令"残留
     try { origRemoveItem.call(localStorage, PWD_KEY); } catch (e) { /* 忽略 */ }
 
-    var savedIdentity = null;
-    var savedToken = null;
+    // 统一登录凭证为 admin/zlg@123（仅本机保存；该键已移出云同步白名单）
     try {
-      savedIdentity = localStorage.getItem(IDENTITY_KEY);
-      savedToken = localStorage.getItem(TOKEN_KEY);
+      origSetItem.call(localStorage, 'hr_management_auth',
+        JSON.stringify({ username: 'admin', password: 'zlg@123' }));
     } catch (e) { /* 忽略 */ }
 
-    // 访客标记仅在本标签页会话内有效（点"访客进入"后刷新用），新开页面一律回登录界面
-    var guestSession = false;
-    try { guestSession = sessionStorage.getItem('__guestSession') === '1'; } catch (e) { /* 忽略 */ }
-
-    if (guestSession && (savedIdentity === 'guest' || localStorage.getItem(READONLY_KEY) === '1')) {
-      enterGuestMode(true);
-      return;
-    }
-    // 新会话：清掉上一轮的访客标记，保证打开网址先看到登录界面
-    try { origRemoveItem.call(localStorage, READONLY_KEY); } catch (e) { /* 忽略 */ }
-
-    identity = 'guest';
-    updateIdentityBar();
+    var savedToken = null;
+    try { savedToken = localStorage.getItem(TOKEN_KEY); } catch (e) { /* 忽略 */ }
 
     online = pullAll();
     if (!online) setStatus('offline');
 
+    // 访客标记仅在本标签页会话内有效，新开页面一律回登录界面
+    var guestSession = false;
+    try { guestSession = sessionStorage.getItem('__guestSession') === '1'; } catch (e) { /* 忽略 */ }
+    if (guestSession && localStorage.getItem(READONLY_KEY) === '1') {
+      enterGuestMode(true);
+      return;
+    }
+    try { origRemoveItem.call(localStorage, READONLY_KEY); } catch (e) { /* 忽略 */ }
+
+    // 不设置原系统登录态：原系统自带的登录界面即系统登录入口
+    identity = 'guest';
+    updateIdentityBar();
+    hookLoginUi();
+
     if (savedToken) {
-      // 本机有未过期的管理员会话：静默恢复管理员身份
+      // 静默恢复云端会话（通过原登录界面登录后即可直接同步）
       token = savedToken;
       verifySession()
-        .then(function () {
-          setStatus('ok');
-          startPolling();
-        })
-        .catch(function () {
-          clearSession();
-          updateIdentityBar();
-          showLogin({ error: '登录已过期，请重新登录' });
-        });
-    } else {
-      showLogin();
+        .then(function () { setStatus('ok'); startPolling(); })
+        .catch(function () { clearSession(); });
     }
 
     // 手机切后台 / 关闭页面时尽量把改动推出去
@@ -619,7 +591,7 @@
   window.CloudSync = {
     flush: flush,
     pull: pullAsync,
-    login: showLogin,
+    login: hookLoginUi,
     isOnline: function () { return online; },
     status: function () {
       return {
