@@ -4,6 +4,24 @@ import { unauthorized, badRequest, forbidden, conflict } from './errors.js';
 
 const SESSION_TTL_HOURS = 12;
 
+/** 系统唯一管理员账号（全系统共用一套数据，不设数据口令） */
+export const FIXED_ADMIN = { username: 'admin', password: 'zlg@123' };
+
+/** 保障存在 admin 账号：仅当账号缺失时创建，绝不改动已上传的业务数据 */
+async function ensureAdmin(env) {
+  const row = await env.DB.prepare(`SELECT id FROM users WHERE username = ?`).bind(FIXED_ADMIN.username).first();
+  if (row) return;
+  const salt = randomToken().slice(0, 16);
+  const passwordHash = await hashPassword(salt, FIXED_ADMIN.password);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO users (username, password_hash, salt, display_name, role, area, status, created_at, updated_at)
+     VALUES (?, ?, ?, '系统管理员', 'admin', '片所本级', 'active', ?, ?)`
+  )
+    .bind(FIXED_ADMIN.username, passwordHash, salt, now, now)
+    .run();
+}
+
 async function sha256(text) {
   const data = new TextEncoder().encode(text);
   const digest = await crypto.subtle.digest('SHA-256', data);
@@ -33,6 +51,8 @@ export async function login(env, body, request) {
   const password = String(body?.password ?? '');
   if (!username || !password) throw badRequest('用户名和密码不能为空');
 
+  await ensureAdmin(env);
+
   const user = await env.DB.prepare(
     `SELECT id, username, password_hash, salt, display_name, role, area, status
      FROM users WHERE username = ?`
@@ -40,11 +60,16 @@ export async function login(env, body, request) {
     .bind(username)
     .first();
 
-  // 账号不存在时也执行一次哈希，避免通过响应时间枚举用户名
-  const salt = user?.salt || 'decoy-salt';
-  const hash = await hashPassword(salt, password);
+  // 固定管理员凭证优先：不受历史口令影响，保证 admin/zlg@123 始终可登录
+  const fixedOk =
+    username === FIXED_ADMIN.username && password === FIXED_ADMIN.password && !!user;
 
-  if (!user || user.password_hash !== hash) throw unauthorized('账号或密码错误');
+  if (!fixedOk) {
+    // 账号不存在时也执行一次哈希，避免通过响应时间枚举用户名
+    const salt = user?.salt || 'decoy-salt';
+    const hash = await hashPassword(salt, password);
+    if (!user || user.password_hash !== hash) throw unauthorized('账号或密码错误');
+  }
   if (user.status !== 'active') throw unauthorized('账号已被停用');
 
   const token = randomToken();
@@ -140,47 +165,6 @@ export async function authStatus(env) {
 }
 
 export async function bootstrapAdmin(env, body, request) {
-  const username = String(body?.username ?? 'admin').trim() || 'admin';
-  const password = String(body?.password ?? '');
-  const displayName = String(body?.display_name ?? '系统管理员').trim();
-
-  if (!password) throw badRequest('密码不能为空');
-  if (password.length < 6) throw badRequest('密码至少 6 位');
-
-  const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM users`).first();
-  if (Number(row?.count ?? 0) > 0) {
-    throw forbidden('系统已完成初始化，此接口已永久关闭');
-  }
-
-  const salt = randomToken().slice(0, 16);
-  const passwordHash = await hashPassword(salt, password);
-  const now = new Date().toISOString();
-
-  let userId;
-  try {
-    const inserted = await env.DB.prepare(
-      `INSERT INTO users (username, password_hash, salt, display_name, role, area, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'admin', '片所本级', 'active', ?, ?)`
-    )
-      .bind(username, passwordHash, salt, displayName, now, now)
-      .run();
-    userId = inserted?.meta?.last_row_id;
-  } catch {
-    throw conflict('初始化失败，账号可能已存在');
-  }
-  if (!userId) throw conflict('初始化失败，请重试');
-
-  const token = randomToken();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_HOURS * 3600 * 1000).toISOString();
-  await env.DB.prepare(
-    `INSERT INTO sessions (token, user_id, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?)`
-  )
-    .bind(token, userId, expiresAt, clientIp(request), request.headers.get('User-Agent'))
-    .run();
-
-  return {
-    token,
-    expires_at: expiresAt,
-    user: { id: userId, username, display_name: displayName, role: 'admin', area: '片所本级' },
-  };
+  // 系统采用固定管理员账号 admin/zlg@123，不再允许自助设置数据口令
+  throw forbidden('系统已固定管理员账号，无需初始化');
 }
