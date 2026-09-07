@@ -497,17 +497,35 @@
     } catch (e) { /* 忽略 */ }
   }
 
-  // 修改类按钮关键词：命中即拦截点击（查看/搜索/筛选/重置/导出/翻页等均放行）
-  var WRITE_BLOCK_RE = /(保存|提交|删除|新增|添加|新建|编辑|修改|导入|上传|清空|批量|注销|登出)/;
-  var WRITE_BLOCK_CLS_RE = /(edit|delete|save|add|del|remove|import|upload)/i;
+  // 访客模式按钮策略：白名单制。默认全部禁用（导入/导出/下载/备份/报表/清空/刷新等
+  // 功能性按钮一律拦截），仅放行查看类操作，杜绝遗漏。
+  // 放行的查看类文字（前缀匹配）
+  var GUEST_ALLOW_RE = /^(查看|详情|搜索|查找|查询|筛选|应用|重置|关闭|取消|返回|展开|收起|上一页|下一页|首页|末页|跳转|切换|刷新|确定|放大|缩小|\d+)$/;
+  // 页签例外：导航页签放行，但指向新增/编辑类页签的仍拦截
+  var TAB_DENY_RE = /add|edit|new|create|import|addForm/i;
+  var GUEST_WRITE_RE = /(保存|提交|删除|新增|添加|新建|编辑|修改|导入|上传|清空|备份|导出|下载|报表|打印|同步)/;
 
   function isWriteButton(el) {
     var tag = el.tagName;
     if (tag !== 'BUTTON' && tag !== 'A' && el.getAttribute('role') !== 'button') return false;
     if (el.closest('#__identityBar') || el.closest('#__zlgBanner')) return false;
-    var txt = (el.textContent || '').replace(/\s/g, '');
+
+    // 分页按钮：纯查看，放行
     var cls = String(el.className || '');
-    return WRITE_BLOCK_RE.test(txt) || WRITE_BLOCK_CLS_RE.test(cls);
+    if (/(pagination-btn|page-btn|pager-btn)/.test(cls)) return false;
+
+    var txt = (el.textContent || '').replace(/\s/g, '');
+
+    // 视图页签：放行（新增/编辑类页签除外）
+    var tab = el.getAttribute('data-tab') || '';
+    if (/(^|\s)tab-btn(\s|$)/.test(cls) || tab) {
+      if (TAB_DENY_RE.test(tab) || GUEST_WRITE_RE.test(txt)) return true;
+      return false; // 非写页签 → 放行
+    }
+
+    // 其余按钮：白名单命中才放行；无文字的图标按钮默认禁用
+    if (!txt) return true;
+    return !GUEST_ALLOW_RE.test(txt);
   }
 
   function installWriteBlocker() {
