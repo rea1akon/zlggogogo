@@ -130,6 +130,7 @@
     try {
       hideBanner();
       banner = document.createElement('div');
+      banner.id = '__zlgBanner';
       banner.style.cssText =
         'position:fixed;left:50%;transform:translateX(-50%);top:16px;z-index:100001;' +
         'max-width:520px;padding:10px 16px;border-radius:8px;font-size:13px;line-height:1.6;' +
@@ -456,6 +457,21 @@
     }, true);
   }
 
+  // 适配器先于 script.js 加载，登录表单是动态生成的：轮询等待其出现后再挂钩
+  function hookLoginUiWhenReady() {
+    if (document.getElementById('loginForm')) { hookLoginUi(); return; }
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries++;
+      if (document.getElementById('loginForm')) {
+        clearInterval(timer);
+        hookLoginUi();
+      } else if (tries > 100) {
+        clearInterval(timer); // 最多等 20 秒
+      }
+    }, 200);
+  }
+
   // 访客 -> 回到登录界面（清除访客与登录态后刷新）
   function backToLogin() {
     try {
@@ -473,15 +489,46 @@
     try {
       var s = document.createElement('style');
       s.id = '__readonlyStyle';
+      // 只读模式不禁用输入控件：筛选下拉、搜索框、分页等查看类交互必须可用；
+      // 修改类操作由 installWriteBlocker 按按钮语义拦截，后端 401 兜底
       s.textContent =
-        'body[data-readonly="true"] input,'
-        + 'body[data-readonly="true"] textarea,'
-        + 'body[data-readonly="true"] select {'
-        + 'background:#16203a !important;color:#8aa0b8 !important;pointer-events:none;'
-        + 'border-color:#2b3a52 !important;}'
-        + 'body[data-readonly="true"] button {opacity:.55 !important;}';
+        'body[data-readonly="true"] .__zlg-blocked {opacity:.5 !important;cursor:not-allowed !important;}';
       document.head.appendChild(s);
     } catch (e) { /* 忽略 */ }
+  }
+
+  // 修改类按钮关键词：命中即拦截点击（查看/搜索/筛选/重置/导出/翻页等均放行）
+  var WRITE_BLOCK_RE = /(保存|提交|删除|新增|添加|新建|编辑|修改|导入|上传|清空|批量|注销|登出)/;
+  var WRITE_BLOCK_CLS_RE = /(edit|delete|save|add|del|remove|import|upload)/i;
+
+  function isWriteButton(el) {
+    var tag = el.tagName;
+    if (tag !== 'BUTTON' && tag !== 'A' && el.getAttribute('role') !== 'button') return false;
+    if (el.closest('#__identityBar') || el.closest('#__zlgBanner')) return false;
+    var txt = (el.textContent || '').replace(/\s/g, '');
+    var cls = String(el.className || '');
+    return WRITE_BLOCK_RE.test(txt) || WRITE_BLOCK_CLS_RE.test(cls);
+  }
+
+  function installWriteBlocker() {
+    if (window.__zlgWriteBlocker) return;
+    window.__zlgWriteBlocker = true;
+    document.addEventListener('click', function (e) {
+      try {
+        if (document.body.getAttribute('data-readonly') !== 'true') return;
+        var el = e.target;
+        while (el && el !== document.body) {
+          if (isWriteButton(el)) {
+            e.preventDefault();
+            e.stopPropagation();
+            showBanner('访客只读模式：修改类操作已禁用，如需编辑请用管理员账号登录。', null, null);
+            setTimeout(hideBanner, 2500);
+            return;
+          }
+          el = el.parentNode;
+        }
+      } catch (err) { /* 拦截器自身异常不阻断页面 */ }
+    }, true);
   }
 
   function showReadonlyBanner() {
@@ -493,6 +540,7 @@
   function applyReadonlyUi() {
     try { document.body.setAttribute('data-readonly', 'true'); } catch (e) { /* 忽略 */ }
     injectReadonlyStyle();
+    installWriteBlocker();
     setStatus('readonly');
     showReadonlyBanner();
   }
@@ -566,7 +614,7 @@
     // 不设置原系统登录态：原系统自带的登录界面即系统登录入口
     identity = 'guest';
     updateIdentityBar();
-    hookLoginUi();
+    hookLoginUiWhenReady();
 
     if (savedToken) {
       // 静默恢复云端会话（通过原登录界面登录后即可直接同步）
@@ -591,7 +639,7 @@
   window.CloudSync = {
     flush: flush,
     pull: pullAsync,
-    login: hookLoginUi,
+    login: hookLoginUiWhenReady,
     isOnline: function () { return online; },
     status: function () {
       return {
