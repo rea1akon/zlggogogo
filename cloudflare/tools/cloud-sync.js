@@ -498,8 +498,8 @@
   }
 
   // 修改/功能类按钮关键词：命中即拦截点击（查看/搜索/筛选/重置/翻页等均放行）
-  var WRITE_BLOCK_RE = /(保存|提交|删除|新增|添加|新建|编辑|修改|导入|导出|上传|下载|清空|备份|批量|报表|打印|同步|注销|登出)/;
-  var WRITE_BLOCK_CLS_RE = /(edit|delete|save|add|del|remove|import|export|upload|download|backup|report|print|sync)/i;
+  var WRITE_BLOCK_RE = /(保存|提交|删除|新增|添加|新建|编辑|修改|导入|导出|上传|下载|清空|备份|恢复|去重|初始化|批量|报表|打印|同步|注销|登出)/;
+  var WRITE_BLOCK_CLS_RE = /(edit|delete|save|add|del|remove|import|export|upload|download|backup|restore|dedup|init|initialize|report|print|sync)/i;
 
   function isWriteButton(el) {
     var tag = el.tagName;
