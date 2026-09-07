@@ -577,11 +577,11 @@
       var s = document.createElement('style');
       s.id = '__zlgMobileStyle';
       s.textContent =
-        'html,body{min-width:0;overflow-x:hidden;}' +
+        'html,body{min-width:0;}' +
         'img,video,svg{max-width:100%;height:auto;}' +
         'button,a,label,.btn,.nav-link,.nav-group-title,.tab-btn{cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}' +
         'input,select,textarea{font-size:16px;}' +
-        '.login-container{display:flex;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));min-height:100vh;box-sizing:border-box;}' +
+        '.login-container{display:flex;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));min-height:100vh;box-sizing:border-box;overflow:hidden;}' +
         '.login-box{width:100%;max-width:400px;box-sizing:border-box;}' +
         '.zlg-version-badge{position:absolute;right:0;bottom:0;font-size:11px;color:rgba(148,163,184,0.7);letter-spacing:0.3px;pointer-events:none;user-select:none;}' +
         '@media (max-width:480px){' +
