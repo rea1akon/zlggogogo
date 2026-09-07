@@ -418,8 +418,16 @@
 
       var box = document.createElement('div');
       box.style.cssText =
-        'width:360px;padding:28px;border-radius:12px;background:#111827;' +
+        'position:relative;width:360px;padding:28px;border-radius:12px;background:#111827;' +
         'border:1px solid rgba(79,195,247,.3);box-shadow:0 18px 50px rgba(0,0,0,.6);color:#c8d6e5;';
+
+      var close = document.createElement('span');
+      close.textContent = '×';
+      close.title = '关闭（继续以访客身份浏览）';
+      close.style.cssText =
+        'position:absolute;right:12px;top:8px;font-size:20px;line-height:1;color:#64748b;cursor:pointer;';
+      close.addEventListener('click', hideLogin);
+      box.appendChild(close);
 
       var inputCss =
         'width:100%;box-sizing:border-box;padding:10px;border-radius:6px;'
@@ -500,10 +508,11 @@
   }
 
   function showReadonlyBanner() {
-    showBanner('访客只读模式：可查看全部数据，任何修改都不会保存到云端。', '管理员登录', function () {
-      try { localStorage.removeItem(READONLY_KEY); } catch (e) { /* 忽略 */ }
+    showBanner('访客只读模式：可查看全部数据，修改不会保存。如需编辑请点左下角「管理员登录」。', '管理员登录', function () {
       showLogin();
     });
+    // 提示条 5 秒后自动收起，不遮挡界面
+    setTimeout(hideBanner, 5000);
   }
 
   function applyReadonlyUi() {
@@ -563,7 +572,7 @@
       savedToken = localStorage.getItem(TOKEN_KEY);
     } catch (e) { /* 忽略 */ }
 
-    // 访客身份优先保持（左下角可一键切回管理员登录）
+    // 启动不弹任何登录框：默认直接以访客（只读）身份进入系统
     if (savedIdentity === 'guest' || localStorage.getItem(READONLY_KEY) === '1') {
       enterGuestMode(true);
       return;
@@ -576,20 +585,20 @@
     if (!online) setStatus('offline');
 
     if (savedToken) {
+      // 本机有未过期的管理员会话：静默恢复管理员身份
       token = savedToken;
       verifySession()
         .then(function () {
-          hideLogin();
           setStatus('ok');
           startPolling();
         })
         .catch(function () {
+          // 会话失效：降级为访客只读，不打扰用户
           clearSession();
-          updateIdentityBar();
-          showLogin({ error: '登录已过期，请重新登录' });
+          enterGuestMode(true);
         });
     } else {
-      showLogin();
+      enterGuestMode(true);
     }
 
     // 手机切后台 / 关闭页面时尽量把改动推出去
