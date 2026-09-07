@@ -16,6 +16,7 @@ const FUNCTIONS_OUT = join(OUT, 'functions');
 const MAIN = '庄骆贵一体化养护管理系统V4.html';
 const STATIC_FILES = ['index.html', MAIN, 'script.js', 'style.css', 'back.mp4'];
 const ADAPTER_SRC = join(CLOUDFLARE_DIR, 'tools', 'cloud-sync.js');
+const VERSION_JSON = join(CLOUDFLARE_DIR, 'config', 'version.json');
 const ANCHOR = '<script src="script.js"></script>';
 // 缓存版本号：每次构建自动更新（构建时间戳），确保浏览器不会使用旧版适配器
 const VER = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
@@ -43,7 +44,23 @@ for (const name of STATIC_FILES) {
   if (!existsSync(src)) throw new Error(`缺少文件：${src}`);
   copyFileSync(src, join(OUT, name));
 }
-copyFileSync(ADAPTER_SRC, join(OUT, 'cloud-sync.js'));
+
+// 读取项目版本配置并注入到适配器，确保登录页版本号从单一配置源读取
+let versionFull = 'V7.3';
+try {
+  const v = JSON.parse(readFileSync(VERSION_JSON, 'utf8'));
+  versionFull = v.full || v.version || versionFull;
+} catch (e) {
+  console.warn(`⚠️  未读取到版本配置 ${VERSION_JSON}，使用默认版本号`);
+}
+const adapterSrc = readFileSync(ADAPTER_SRC, 'utf8');
+const adapterOut = adapterSrc.replace(/__ZLG_VERSION_FULL__/g, versionFull);
+writeFileSync(join(OUT, 'cloud-sync.js'), adapterOut, 'utf8');
+
+// 同时把版本配置复制到产物根目录，便于外部读取
+if (existsSync(VERSION_JSON)) {
+  copyFileSync(VERSION_JSON, join(OUT, 'version.json'));
+}
 
 // 同源 API 代理（/api/* → Worker），绕过 workers.dev 国内 DNS 污染
 if (existsSync(FUNCTIONS_SRC)) {

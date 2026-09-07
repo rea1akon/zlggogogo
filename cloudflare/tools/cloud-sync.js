@@ -1,7 +1,7 @@
 /* 云存储适配器 v2 —— 让原版单机系统具备多设备数据同步能力
  *
- * 版本：V7.1
- * 迭代规则：后续功能修改按 V7.2、V7.3... 递增版本号
+ * 版本：V7.3
+ * 迭代规则：后续功能修改按 V7.4、V7.5... 递增版本号
  *
  * 原理（不改动原系统任何业务代码）：
  *   1. 页面加载时，用同步请求把云端数据预填进本地存储，之后原系统照常读取
@@ -18,8 +18,10 @@
 (function () {
   'use strict';
 
-  var CLOUD_SYNC_VERSION = 'V7.2';
-  console.log('[zlg-cloud-sync] version', CLOUD_SYNC_VERSION);
+  var CLOUD_SYNC_VERSION = 'V7.3';
+  // 完整版本字符串由构建脚本从 cloudflare/config/version.json 注入
+  var APP_VERSION = '__ZLG_VERSION_FULL__';
+  console.log('[zlg-cloud-sync] version', CLOUD_SYNC_VERSION, APP_VERSION);
 
   var NS = 'zlg';
   var API = '/api';
@@ -549,6 +551,61 @@
     } catch (e) { /* 忽略 */ }
   }
 
+  // 版本号徽标：从项目版本配置读取，显示在登录页底部右侧
+  function injectVersionBadge() {
+    if (document.getElementById('__zlgVersionBadge')) return;
+    var footer = document.querySelector('.login-footer');
+    if (!footer) {
+      // 适配器先于 script.js 加载时 DOM 可能未就绪，稍后再试
+      if (typeof setTimeout !== 'undefined') setTimeout(injectVersionBadge, 300);
+      return;
+    }
+    try {
+      var badge = document.createElement('span');
+      badge.id = '__zlgVersionBadge';
+      badge.className = 'zlg-version-badge';
+      badge.setAttribute('aria-label', '应用版本号');
+      badge.textContent = APP_VERSION;
+      footer.appendChild(badge);
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // 移动端增强：修复小屏下输入框缩放、触控目标、溢出等问题
+  function injectMobileStyle() {
+    if (document.getElementById('__zlgMobileStyle')) return;
+    try {
+      var s = document.createElement('style');
+      s.id = '__zlgMobileStyle';
+      s.textContent =
+        'html,body{min-width:0;overflow-x:hidden;}' +
+        'img,video,svg{max-width:100%;height:auto;}' +
+        'button,a,label,.btn,.nav-link,.nav-group-title,.tab-btn{cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}' +
+        'input,select,textarea{font-size:16px;}' +
+        '.login-container{display:flex;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));min-height:100vh;box-sizing:border-box;}' +
+        '.login-box{width:100%;max-width:400px;box-sizing:border-box;}' +
+        '.zlg-version-badge{position:absolute;right:0;bottom:0;font-size:11px;color:rgba(148,163,184,0.7);letter-spacing:0.3px;pointer-events:none;user-select:none;}' +
+        '@media (max-width:480px){' +
+        '.login-box{padding:28px 20px;border-radius:16px;max-width:min(400px,calc(100vw - 24px));}' +
+        '.login-header h1{font-size:17px;letter-spacing:0.5px;}' +
+        '.login-subtitle{font-size:12px;}' +
+        '.form-label{font-size:12px;}' +
+        '.login-input{min-height:44px;font-size:16px;padding:0 44px 0 14px;}' +
+        '.login-btn{min-height:44px;font-size:14px;}' +
+        '.btn-link{font-size:12px;padding:8px 14px;}' +
+        '.login-footer{padding-bottom:20px;margin-top:22px;}' +
+        '.login-footer p{font-size:11px;}' +
+        '.zlg-version-badge{font-size:10px;right:2px;bottom:2px;}' +
+        '}' +
+        '@media (max-width:360px){' +
+        '.login-box{padding:24px 18px;}' +
+        '.login-header h1{font-size:16px;}' +
+        '.login-input{min-height:42px;}' +
+        '.zlg-version-badge{font-size:9px;}' +
+        '}';
+      document.head.appendChild(s);
+    } catch (e) { /* 忽略 */ }
+  }
+
   function showReadonlyBanner() {
     showBanner('访客只读模式：可查看全部数据，修改不会保存。', '管理员登录', backToLogin);
     // 提示条 5 秒后自动收起，不遮挡界面
@@ -633,6 +690,8 @@
     // 不设置原系统登录态：原系统自带的登录界面即系统登录入口
     identity = 'guest';
     updateIdentityBar();
+    injectMobileStyle();
+    injectVersionBadge();
     hookLoginUiWhenReady();
 
     if (savedToken) {
