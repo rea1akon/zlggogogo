@@ -1,7 +1,7 @@
 /* 云存储适配器 v2 —— 让原版单机系统具备多设备数据同步能力
  *
- * 版本：V7.3
- * 迭代规则：后续功能修改按 V7.4、V7.5... 递增版本号
+ * 版本：V7.4
+ * 迭代规则：后续功能修改按 V7.5、V7.6... 递增版本号
  *
  * 原理（不改动原系统任何业务代码）：
  *   1. 页面加载时，用同步请求把云端数据预填进本地存储，之后原系统照常读取
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  var CLOUD_SYNC_VERSION = 'V7.3';
+  var CLOUD_SYNC_VERSION = 'V7.4';
   // 完整版本字符串由构建脚本从 cloudflare/config/version.json 注入
   var APP_VERSION = '__ZLG_VERSION_FULL__';
   console.log('[zlg-cloud-sync] version', CLOUD_SYNC_VERSION, APP_VERSION);
@@ -583,7 +583,7 @@
         'input,select,textarea{font-size:16px;}' +
         '.login-container{display:flex;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));min-height:100vh;box-sizing:border-box;overflow:hidden;}' +
         '.login-box{width:100%;max-width:400px;box-sizing:border-box;}' +
-        '.zlg-version-badge{position:absolute;right:0;bottom:0;font-size:11px;color:rgba(148,163,184,0.7);letter-spacing:0.3px;pointer-events:none;user-select:none;}' +
+        '.zlg-version-badge{display:block;text-align:right;font-size:11px;color:rgba(148,163,184,0.7);letter-spacing:0.3px;margin-top:8px;pointer-events:none;user-select:none;}' +
         '@media (max-width:480px){' +
         '.login-box{padding:28px 20px;border-radius:16px;max-width:min(400px,calc(100vw - 24px));}' +
         '.login-header h1{font-size:17px;letter-spacing:0.5px;}' +
@@ -592,9 +592,9 @@
         '.login-input{min-height:44px;font-size:16px;padding:0 44px 0 14px;}' +
         '.login-btn{min-height:44px;font-size:14px;}' +
         '.btn-link{font-size:12px;padding:8px 14px;}' +
-        '.login-footer{padding-bottom:20px;margin-top:22px;}' +
+        '.login-footer{margin-top:22px;}' +
         '.login-footer p{font-size:11px;}' +
-        '.zlg-version-badge{font-size:10px;right:2px;bottom:2px;}' +
+        '.zlg-version-badge{font-size:10px;margin-top:6px;}' +
         '}' +
         '@media (max-width:360px){' +
         '.login-box{padding:24px 18px;}' +
