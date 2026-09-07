@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  var CLOUD_SYNC_VERSION = 'V7.1';
+  var CLOUD_SYNC_VERSION = 'V7.2';
   console.log('[zlg-cloud-sync] version', CLOUD_SYNC_VERSION);
 
   var NS = 'zlg';

@@ -52,6 +52,15 @@ if (existsSync(FUNCTIONS_SRC)) {
   throw new Error(`找不到 functions 代理目录：${FUNCTIONS_SRC}`);
 }
 
+// 路由规则：仅 /api/* 走 Functions，其余静态资源（.css/.mp4/.js/.html 等）直接由 Pages 静态服务。
+// 若不声明，Pages 会把所有路径（含 style.css / back.mp4）交给函数，导致静态资源被函数接管、
+// 返回占位内容，登录页背景动画(粒子/网格/光晕)与视频背景随之消失。
+writeFileSync(
+  join(OUT, '_routes.json'),
+  JSON.stringify({ version: 1, include: ['/api/*'], exclude: ['/*.*', '/'] }, null, 2),
+  'utf8'
+);
+
 const htmlPath = join(OUT, MAIN);
 const html = readFileSync(htmlPath, 'utf8');
 if (!html.includes(ANCHOR)) throw new Error(`注入失败：${MAIN} 中未找到 ${ANCHOR}`);
