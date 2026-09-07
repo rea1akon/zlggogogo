@@ -1,5 +1,8 @@
 /* 云存储适配器 v2 —— 让原版单机系统具备多设备数据同步能力
  *
+ * 版本：V7.1
+ * 迭代规则：后续功能修改按 V7.2、V7.3... 递增版本号
+ *
  * 原理（不改动原系统任何业务代码）：
  *   1. 页面加载时，用同步请求把云端数据预填进本地存储，之后原系统照常读取
  *   2. 拦截本地存储的写入操作，变更自动同步到云端数据库
@@ -14,6 +17,9 @@
  */
 (function () {
   'use strict';
+
+  var CLOUD_SYNC_VERSION = 'V7.1';
+  console.log('[zlg-cloud-sync] version', CLOUD_SYNC_VERSION);
 
   var NS = 'zlg';
   var API = '/api';
@@ -472,14 +478,14 @@
     }, 200);
   }
 
-  // 访客 -> 回到登录界面（清除访客与登录态后刷新）
+  // 访客 / 退出登录 -> 返回系统主页面
   function backToLogin() {
     try {
       sessionStorage.removeItem('isLoggedIn');
       sessionStorage.removeItem('__guestSession');
     } catch (e) { /* 忽略 */ }
     try { localStorage.removeItem(READONLY_KEY); } catch (e) { /* 忽略 */ }
-    location.reload();
+    location.href = 'https://zlg-maintenance.pages.dev/%E5%BA%84%E9%AA%86%E8%B4%B5%E4%B8%80%E4%BD%93%E5%8C%96%E5%85%BB%E6%8A%A4%E7%AE%A1%E7%90%86%E7%B3%BB%E7%BB%9FV4#';
   }
 
   // ---------- 访客只读模式 ----------
@@ -521,6 +527,7 @@
           if (isWriteButton(el)) {
             e.preventDefault();
             e.stopPropagation();
+            try { el.classList.add('__zlg-blocked'); } catch (e) { /* 忽略 */ }
             showBanner('访客只读模式：修改类操作已禁用，如需编辑请用管理员账号登录。', null, null);
             setTimeout(hideBanner, 2500);
             return;
@@ -529,6 +536,17 @@
         }
       } catch (err) { /* 拦截器自身异常不阻断页面 */ }
     }, true);
+  }
+
+  // 进入访客模式时预扫描页面，给所有功能类按钮加上视觉禁用样式
+  function markBlockedButtons() {
+    if (document.body.getAttribute('data-readonly') !== 'true') return;
+    try {
+      var els = document.querySelectorAll('button, a, [role="button"]');
+      for (var i = 0; i < els.length; i++) {
+        if (isWriteButton(els[i])) els[i].classList.add('__zlg-blocked');
+      }
+    } catch (e) { /* 忽略 */ }
   }
 
   function showReadonlyBanner() {
@@ -541,6 +559,7 @@
     try { document.body.setAttribute('data-readonly', 'true'); } catch (e) { /* 忽略 */ }
     injectReadonlyStyle();
     installWriteBlocker();
+    markBlockedButtons();
     setStatus('readonly');
     showReadonlyBanner();
   }
