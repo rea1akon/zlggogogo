@@ -1,7 +1,7 @@
 /* 云存储适配器 v2 —— 让原版单机系统具备多设备数据同步能力
  *
- * 版本：V7.4
- * 迭代规则：后续功能修改按 V7.5、V7.6... 递增版本号
+ * 版本：V7.6
+ * 迭代规则：后续功能修改按 V7.7、V7.8... 递增版本号
  *
  * 原理（不改动原系统任何业务代码）：
  *   1. 页面加载时，用同步请求把云端数据预填进本地存储，之后原系统照常读取
@@ -645,10 +645,79 @@
     setTimeout(hideBanner, 5000);
   }
 
+  // ============ 访客隐私脱敏（V7.6） ============
+  // 访客模式下实时掩码页面上的身份证号/手机号，只改展示文本，
+  // 不改任何本地存储或云端数据；管理员模式不受影响。
+
+  // 18 位身份证：6 位地区码 + 出生年 + 合法月/日 + 3 位顺序码 + 校验位
+  var PRIVACY_ID18_RE = /(^|[^0-9a-zA-Z*])(\d{6})(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(\d{3}[0-9Xx])(?![0-9a-zA-Z*])/g;
+  // 15 位老身份证：6 位地区码 + 2 位年 + 合法月/日 + 3 位顺序码
+  var PRIVACY_ID15_RE = /(^|[^0-9a-zA-Z*])(\d{6})(\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(\d{3})(?![0-9a-zA-Z*])/g;
+  // 手机号：1[3-9] 开头的 11 位数字
+  var PRIVACY_PHONE_RE = /(^|[^0-9a-zA-Z*])(1[3-9]\d)(\d{4})(\d{4})(?![0-9a-zA-Z*])/g;
+
+  function maskSensitiveText(text) {
+    if (!text || text.length < 11) return text;
+    return text
+      .replace(PRIVACY_ID18_RE, '$1$2********$6')
+      .replace(PRIVACY_ID15_RE, '$1$2******$6')
+      .replace(PRIVACY_PHONE_RE, '$1$2****$4');
+  }
+
+  function maskSensitiveRoot(root) {
+    try {
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (node) {
+          var p = node.parentNode;
+          if (!p) return NodeFilter.FILTER_REJECT;
+          var tag = p.nodeName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+          return node.nodeValue && /\d{11,}/.test(node.nodeValue)
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_SKIP;
+        }
+      });
+      var nodes = [];
+      var n;
+      while ((n = walker.nextNode())) nodes.push(n);
+      for (var i = 0; i < nodes.length; i++) {
+        var masked = maskSensitiveText(nodes[i].nodeValue);
+        if (masked !== nodes[i].nodeValue) nodes[i].nodeValue = masked;
+      }
+      // 输入框/文本域的值也一并掩码（详情弹窗可能用 input 展示）
+      var fields = root.querySelectorAll ? root.querySelectorAll('input,textarea') : [];
+      for (var j = 0; j < fields.length; j++) {
+        var v = fields[j].value;
+        var m = maskSensitiveText(v);
+        if (m !== v) fields[j].value = m;
+      }
+    } catch (e) { /* 脱敏自身异常不阻断页面 */ }
+  }
+
+  function installPrivacyMasker() {
+    if (window.__zlgPrivacyMasker) return;
+    window.__zlgPrivacyMasker = true;
+    var pending = null;
+    function run() {
+      pending = null;
+      maskSensitiveRoot(document.body);
+    }
+    function schedule() {
+      if (pending) return;
+      pending = setTimeout(run, 120);
+    }
+    try {
+      var obs = new MutationObserver(schedule);
+      obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+    } catch (e) { /* 忽略 */ }
+    schedule();
+  }
+
   function applyReadonlyUi() {
     try { document.body.setAttribute('data-readonly', 'true'); } catch (e) { /* 忽略 */ }
     injectReadonlyStyle();
     installWriteBlocker();
+    installPrivacyMasker();
     markBlockedButtons();
     setStatus('readonly');
     showReadonlyBanner();
