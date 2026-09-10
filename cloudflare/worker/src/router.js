@@ -6,6 +6,7 @@ import { getResource, resourceMeta, RESOURCES } from './resources.js';
 import * as crud from './handlers/crud.js';
 import * as kv from './handlers/kv.js';
 import { login, logout, currentUser, requireWriteRole, bootstrapAdmin, authStatus } from './lib/auth.js';
+import { redact, needRedact } from './lib/redact.js';
 import { logOperation } from './lib/log.js';
 
 const RE_RESOURCE = /^\/api\/([a-zA-Z_]+)(?:\/([^/]+))?\/?$/;
@@ -28,6 +29,21 @@ function health(env) {
 // 键值存储的写操作鉴权：未开启写鉴权时直接放行，开启后必须持有有效会话且非访客
 async function requireKvWrite(env, request) {
   return requireWriteRole(env, request);
+}
+
+/**
+ * 读取权限判定（用于脱敏）：
+ *   - 携带有效且未过期的管理员会话 → 返回明文
+ *   - 无凭证 / 凭证无效 / 非管理员角色 → 读取结果统一脱敏
+ * 这样即使有人绕过前端直接请求接口，敏感明文也不会下发。
+ */
+async function shouldRedact(env, request) {
+  try {
+    const user = await currentUser(env, request);
+    return needRedact(user);
+  } catch {
+    return true; // 未携带有效凭证，按访客处理
+  }
 }
 
 export async function route(request, env) {
@@ -97,7 +113,6 @@ export async function route(request, env) {
     }
 
     const namespace = decodeURIComponent(ns);
-
     // 批量写入：POST /api/kv/:ns/_bulk
     if (key === '_bulk') {
       if (method !== 'POST') return methodNotAllowed(request, env, 'POST');
@@ -106,19 +121,22 @@ export async function route(request, env) {
       return ok(await kv.putMany(env, namespace, body?.items));
     }
 
+    // 读取是否需要脱敏（访客/未登录一律脱敏）
+    const redactFlag = await shouldRedact(env, request);
+
     if (!key) {
       if (method !== 'GET') return methodNotAllowed(request, env, 'GET');
       // 带 keys 参数走批量读取：GET /api/kv/:ns?keys=a,b,c
       const keysParam = url.searchParams.get('keys');
       if (keysParam) {
         const keys = keysParam.split(',').map((s) => s.trim()).filter(Boolean);
-        return ok(await kv.getMany(env, namespace, keys));
+        return ok(await kv.getMany(env, namespace, keys, redactFlag));
       }
-      return ok(await kv.listKeys(env, namespace));
+      return ok(await kv.listKeys(env, namespace, redactFlag));
     }
 
     const k = decodeURIComponent(key);
-    if (method === 'GET') return ok(await kv.getValue(env, namespace, k));
+    if (method === 'GET') return ok(await kv.getValue(env, namespace, k, redactFlag));
     if (method === 'PUT' || method === 'POST') {
       await requireKvWrite(env, request);
       const body = await readJson(request);
@@ -145,7 +163,11 @@ export async function route(request, env) {
   let user = null;
   if (isWrite) {
     user = await requireWriteRole(env, request);
+  } else {
+    try { user = await currentUser(env, request); } catch { user = null; }
   }
+  // 读取出口脱敏：非管理员不返回敏感明文
+  const maskRows = (rows) => (needRedact(user) && Array.isArray(rows) ? rows.map(redact) : rows);
 
   // 批量写入：POST /api/:resource/bulk
   if (idOrAction === 'bulk') {
@@ -166,7 +188,7 @@ export async function route(request, env) {
   if (!idOrAction) {
     if (method === 'GET') {
       const data = await crud.list(env, url, resource);
-      return ok(data.rows, { total: data.total, limit: data.limit, offset: data.offset });
+      return ok(maskRows(data.rows), { total: data.total, limit: data.limit, offset: data.offset });
     }
     if (method === 'POST') {
       const body = await readJson(request);
@@ -184,7 +206,7 @@ export async function route(request, env) {
   }
 
   // 单条：GET / PUT / DELETE
-  if (method === 'GET') return ok(await crud.getById(env, resource, idOrAction));
+  if (method === 'GET') return ok(needRedact(user) ? redact(await crud.getById(env, resource, idOrAction)) : await crud.getById(env, resource, idOrAction));
   if (method === 'PUT' || method === 'PATCH') {
     const body = await readJson(request);
     const row = await crud.update(env, resource, idOrAction, body);

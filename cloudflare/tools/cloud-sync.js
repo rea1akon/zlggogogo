@@ -1,7 +1,7 @@
 /* 云存储适配器 v2 —— 让原版单机系统具备多设备数据同步能力
  *
- * 版本：V7.6
- * 迭代规则：后续功能修改按 V7.7、V7.8... 递增版本号
+ * 版本：V7.7
+ * 迭代规则：后续功能修改按 V7.8、V7.9... 递增版本号
  *
  * 原理（不改动原系统任何业务代码）：
  *   1. 页面加载时，用同步请求把云端数据预填进本地存储，之后原系统照常读取
@@ -68,6 +68,8 @@
   var identity = 'guest'; // 当前身份：'admin' | 'guest'
   var identityUser = ''; // 当前登录账号名（由服务端返回）
   var identityBar = null;
+  // 由"未携带凭证的拉取"写入的键：服务端已对其脱敏，禁止回写云端，避免污染真实数据
+  var untrustedKeys = Object.create(null);
 
   var origSetItem = Storage.prototype.setItem;
   var origRemoveItem = Storage.prototype.removeItem;
@@ -80,11 +82,13 @@
   }
 
   // 同步请求：页面首次加载必须在原系统脚本执行前拿到数据，因此不能用异步
+  // 带凭证拉取时服务端才下发未脱敏的明文，管理员<｜hy_place▁holder▁no▁813｜>次预填就是完整数据
   function syncGet(url) {
     try {
       var xhr = new XMLHttpRequest();
       xhr.open('GET', url, false);
       xhr.setRequestHeader('Accept', 'application/json');
+      if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
       xhr.timeout = 15000;
       xhr.send(null);
       if (xhr.status >= 200 && xhr.status < 300) return JSON.parse(xhr.responseText);
@@ -185,7 +189,8 @@
 
   // ---------- 拉取云端数据 ----------
 
-  function applyItems(items) {
+  // trusted=true 表示本次数据是携带管理员凭证拉取的明文副本，可以安全回写云端
+  function applyItems(items, trusted) {
     var changed = [];
     for (var i = 0; i < items.length; i += 1) {
       var it = items[i];
@@ -196,11 +201,17 @@
       try { next = JSON.stringify(it.value); } catch (e) { continue; }
       var prev = null;
       try { prev = localStorage.getItem(it.key); } catch (e) { /* 忽略 */ }
-      if (prev === next) continue;
+      if (prev === next) {
+        // 内容一致：说明之前的副本也是同一份，信任状态沿用来源
+        if (trusted) delete untrustedKeys[it.key];
+        continue;
+      }
       // 走原始方法写入，避免把云端数据当成新的本地改动再次提交
       try {
         origSetItem.call(localStorage, it.key, next);
         changed.push(it.key);
+        if (trusted) delete untrustedKeys[it.key];
+        else untrustedKeys[it.key] = true; // 可能是脱敏副本，标记为不可回写
       } catch (e) { /* 容量不足时忽略 */ }
     }
     return changed;
@@ -209,18 +220,20 @@
   function pullAll() {
     var res = syncGet(API + '/kv/' + NS + '?keys=' + encodeURIComponent(SYNC_KEYS.join(',')));
     if (!res || !res.ok || !res.data) return false;
-    applyItems(res.data.items || []);
+    applyItems(res.data.items || [], !!token);
     return true;
   }
 
   function pullAsync() {
     if (syncing) return;
+    var headers = { Accept: 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token; // 带凭证才能拿到未脱敏的明文
     return fetch(API + '/kv/' + NS + '?keys=' + encodeURIComponent(SYNC_KEYS.join(','))
-      + '&t=' + Date.now(), { headers: { Accept: 'application/json' } })
+      + '&t=' + Date.now(), { headers: headers })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (!j || !j.ok) return;
-        var changed = applyItems((j.data && j.data.items) || []);
+        var changed = applyItems((j.data && j.data.items) || [], !!token);
         if (changed.length) {
           showBanner('云端数据有更新（' + changed.length + ' 项）', '刷新查看', function () {
             location.reload();
@@ -308,6 +321,17 @@
   function flush() {
     if (syncing) return Promise.resolve();
     if (readonly) return Promise.resolve(); // 只读模式：永不推送
+    // 安全边界：本机数据若来自"未带凭证"的拉取（服务端已脱敏），
+    // 绝不允许回写云端，否则会把脱敏副本覆盖掉真实的原始数据。
+    var blocked = Object.keys(dirty).filter(function (k) { return untrustedKeys[k]; });
+    if (blocked.length) {
+      blocked.forEach(function (k) { delete dirty[k]; });
+      lastError = '本机为脱敏副本，已阻止回写云端';
+      setStatus('error');
+      showBanner('本机数据为脱敏副本，已阻止回写云端以免覆盖真实数据。请用管理员账号登录后刷新页面。',
+        '重新登录', backToLogin);
+      return Promise.resolve();
+    }
     var keys = Object.keys(dirty);
     if (!keys.length) return Promise.resolve();
     if (!token) {
@@ -479,6 +503,8 @@
         .then(function () {
           setStatus('ok');
           startPolling();
+          // 登录前拉取的是脱敏副本：立刻用凭证重新拉一次明文，避免管理员看到打码数据
+          if (Object.keys(untrustedKeys).length) refreshAfterLogin();
         })
         .catch(function () {
           // 云端登录失败不影响本地使用；修改暂存本地，待网络恢复后同步
@@ -746,6 +772,15 @@
     location.reload();
   }
 
+  // 登录成功后：用管理员凭证重新拉取明文数据，再刷新页面让各模块读到完整数据
+  function refreshAfterLogin() {
+    pullAll(); // 同步拉取，此时 token 已存在，服务端返回未脱敏内容
+    // 若仍有键处于"不可信"状态（例如有未提交的本地改动），交给刷新后的整体重新加载处理
+    if (Object.keys(untrustedKeys).length) {
+      try { location.reload(); } catch (e) { /* 忽略 */ }
+    }
+  }
+
   // ---------- 启动 ----------
 
   function startPolling() {
@@ -776,6 +811,8 @@
 
     var savedToken = null;
     try { savedToken = localStorage.getItem(TOKEN_KEY); } catch (e) { /* 忽略 */ }
+    // 读取前先恢复凭证：服务端据此判断角色，管理员才能拿到未脱敏的明文
+    if (savedToken) token = savedToken;
 
     online = pullAll();
     if (!online) setStatus('offline');

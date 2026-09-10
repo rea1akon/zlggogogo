@@ -3,6 +3,7 @@
 // 小值仍走 kv_store，保持与旧版兼容
 
 import { notFound, badRequest } from '../lib/errors.js';
+import { redact } from '../lib/redact.js';
 
 const NAME_RE = /^[A-Za-z0-9_\-\u4e00-\u9fa5]{1,64}$/;
 const CHUNK_SIZE = 48 * 1024; // 单片 48KB，留出足够安全余量
@@ -88,35 +89,50 @@ export async function listNamespaces(env) {
   return results;
 }
 
-function decode(row) {
+// 读取出口统一过脱敏：访客/未登录请求拿不到敏感明文，管理员不受影响
+function project(row, redactFlag) {
+  if (!row) return row;
+  return redactFlag ? { ...row, value: redact(row.value) } : row;
+}
+
+function decode(row, redactFlag) {
   if (!row) return null;
   let value = row.value;
   if (value !== null && value !== undefined) {
     value = parseValue(value);
   }
-  return { namespace: row.namespace, key: row.key, value, updated_at: row.updated_at };
+  return project({ namespace: row.namespace, key: row.key, value, updated_at: row.updated_at }, redactFlag);
 }
 
-export async function listKeys(env, namespace) {
+export async function listKeys(env, namespace, redactFlag) {
   const ns = checkName(namespace, '命名空间');
   const { results } = await env.DB.prepare(`SELECT * FROM kv_store WHERE namespace = ? ORDER BY key`)
     .bind(ns)
     .all();
-  return results.map(decode);
+  return results.map((r) => decode(r, redactFlag));
 }
 
-export async function getValue(env, namespace, key) {
+export async function getValue(env, namespace, key, redactFlag) {
   const ns = checkName(namespace, '命名空间');
   const k = checkName(key, '键名');
 
   const chunked = await readChunks(env, ns, k);
   if (chunked) {
-    return { namespace: ns, key: k, value: parseValue(chunked.text), updated_at: chunked.updated_at, chunks: chunked.chunks };
+    return project(
+      {
+        namespace: ns,
+        key: k,
+        value: parseValue(chunked.text),
+        updated_at: chunked.updated_at,
+        chunks: chunked.chunks
+      },
+      redactFlag
+    );
   }
 
   const row = await env.DB.prepare(`SELECT * FROM kv_store WHERE namespace = ? AND key = ?`).bind(ns, k).first();
   if (!row) throw notFound(`键 ${ns}/${k} 不存在`);
-  return decode(row);
+  return decode(row, redactFlag);
 }
 
 export async function putValue(env, namespace, key, value) {
@@ -160,7 +176,7 @@ export async function removeValue(env, namespace, key) {
 
 // ---------- 批量接口（前端启动时全量拉取 / 批量提交） ----------
 
-export async function getMany(env, namespace, keys) {
+export async function getMany(env, namespace, keys, redactFlag) {
   const ns = checkName(namespace, '命名空间');
   if (!Array.isArray(keys) || keys.length === 0) throw badRequest('keys 不能为空');
   if (keys.length > MAX_BATCH_KEYS) throw badRequest(`一次最多读取 ${MAX_BATCH_KEYS} 个键`);
@@ -169,7 +185,7 @@ export async function getMany(env, namespace, keys) {
   for (const key of keys) {
     const k = checkName(key, '键名');
     try {
-      const r = await getValue(env, ns, k);
+      const r = await getValue(env, ns, k, redactFlag);
       items.push({ key: k, value: r.value, updated_at: r.updated_at, ok: true });
     } catch (err) {
       // 键不存在时返回 null，不中断整批读取
