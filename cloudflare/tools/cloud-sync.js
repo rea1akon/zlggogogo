@@ -1,7 +1,7 @@
 /* 云存储适配器 v2 —— 让原版单机系统具备多设备数据同步能力
  *
- * 版本：V7.7
- * 迭代规则：后续功能修改按 V7.8、V7.9... 递增版本号
+ * 版本：V7.8
+ * 迭代规则：后续功能修改按 V7.9、V8.0... 递增版本号
  *
  * 原理（不改动原系统任何业务代码）：
  *   1. 页面加载时，用同步请求把云端数据预填进本地存储，之后原系统照常读取
@@ -461,6 +461,101 @@
     } catch (e) { /* 忽略 */ }
   }
 
+  // ---------- 访客口令校验（V7.8）----------
+  // 轻量门槛：避免外网链接被随手转发后任何人直接进入只读浏览。
+  // 校验通过后才进入访客模式，进入后依然是只读（写操作照旧被拦截）。
+  var GUEST_PASS = '666666';
+
+  function showGuestPassDialog() {
+    if (document.getElementById('__guestPassMask')) return;
+    var mask = document.createElement('div');
+    mask.id = '__guestPassMask';
+    mask.style.cssText =
+      'position:fixed;left:0;top:0;right:0;bottom:0;z-index:999999;display:flex;' +
+      'align-items:center;justify-content:center;padding:20px;box-sizing:border-box;' +
+      'background:rgba(15,23,42,.45);';
+
+    var box = document.createElement('div');
+    box.style.cssText =
+      'width:100%;max-width:300px;background:#ffffff;border-radius:14px;padding:20px 20px 16px;' +
+      'box-sizing:border-box;box-shadow:0 20px 50px rgba(2,6,23,.35);' +
+      'font-family:"Microsoft YaHei",sans-serif;';
+
+    var title = document.createElement('div');
+    title.textContent = '访客验证';
+    title.style.cssText = 'font-size:15px;font-weight:600;color:#1e293b;text-align:center;';
+
+    var tip = document.createElement('div');
+    tip.textContent = '请输入访客口令后继续浏览';
+    tip.style.cssText = 'font-size:12px;color:#94a3b8;text-align:center;margin-top:6px;';
+
+    var input = document.createElement('input');
+    input.type = 'password';
+    input.inputMode = 'numeric';
+    input.maxLength = 12;
+    input.placeholder = '访客口令';
+    input.style.cssText =
+      'display:block;width:100%;box-sizing:border-box;margin-top:14px;height:42px;padding:0 14px;' +
+      'border:1px solid #cbd5e1;border-radius:8px;font-size:16px;color:#1e293b;outline:none;' +
+      'font-family:inherit;letter-spacing:2px;';
+
+    var err = document.createElement('div');
+    err.style.cssText = 'font-size:12px;color:#dc2626;height:16px;line-height:16px;margin-top:6px;';
+
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;margin-top:10px;';
+
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = '取消';
+    cancel.style.cssText =
+      'flex:1;height:40px;border-radius:8px;border:1px solid #cbd5e1;background:#ffffff;' +
+      'color:#64748b;font-size:14px;cursor:pointer;font-family:inherit;';
+
+    var ok = document.createElement('button');
+    ok.type = 'button';
+    ok.textContent = '进入';
+    ok.style.cssText =
+      'flex:1;height:40px;border-radius:8px;border:none;font-size:14px;cursor:pointer;' +
+      'font-family:inherit;color:#ffffff;background:linear-gradient(135deg,#3b82f6,#06b6d4);';
+
+    function close() {
+      try { if (mask.parentNode) mask.parentNode.removeChild(mask); } catch (e) { /* 忽略 */ }
+    }
+
+    function submit() {
+      if (input.value.trim() !== GUEST_PASS) {
+        err.textContent = '口令不正确，请重新输入';
+        input.value = '';
+        input.focus();
+        return;
+      }
+      close();
+      enterGuestMode(false);
+    }
+
+    ok.addEventListener('click', submit);
+    cancel.addEventListener('click', close);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      else if (e.key === 'Escape') { close(); }
+      else if (err.textContent) { err.textContent = ''; }
+    });
+    mask.addEventListener('click', function (e) { if (e.target === mask) close(); });
+
+    row.appendChild(cancel);
+    row.appendChild(ok);
+    box.appendChild(title);
+    box.appendChild(tip);
+    box.appendChild(input);
+    box.appendChild(err);
+    box.appendChild(row);
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+
+    setTimeout(function () { try { input.focus(); } catch (e) { /* 忽略 */ } }, 30);
+  }
+
   function hookLoginUi() {
     var form = document.getElementById('loginForm');
     if (!form || form.getAttribute('data-cloud-hooked') === '1') return;
@@ -485,7 +580,7 @@
         + 'font-size:14px;cursor:pointer;font-family:inherit;transition:background .15s;';
       g.addEventListener('mouseenter', function () { g.style.background = '#eef2ff'; });
       g.addEventListener('mouseleave', function () { g.style.background = '#ffffff'; });
-      g.addEventListener('click', function () { enterGuestMode(false); });
+      g.addEventListener('click', function () { showGuestPassDialog(); });
       form.parentNode.insertBefore(g, form.nextSibling);
     }
 
