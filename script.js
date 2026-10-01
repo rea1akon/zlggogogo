@@ -12120,12 +12120,120 @@ function renderMDTimeChart(period) {
 }
 
 /* ========== Warehouse Module Functions ========== */
+/* ========== 材料明细单元格悬浮提示（V8.0） ==========
+ * 仅当单元格内容确实超出可视宽度（被截断）时，才弹出气泡显示完整内容。
+ * 事件委托挂在表格容器上，tbody 每次重建后依然有效。
+ */
+function whInstallCellTooltip() {
+    const wrapper = document.getElementById('whTableWrapper');
+    if (!wrapper || wrapper.__whTipReady) return;
+    wrapper.__whTipReady = true;
+
+    let tip = document.getElementById('whCellTip');
+    if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'whCellTip';
+        tip.className = 'wh-cell-tip';
+        document.body.appendChild(tip);
+    }
+
+    let activeCell = null;
+    const measureCanvas = document.createElement('canvas').getContext('2d');
+
+    function cellText(td) {
+        const input = td.querySelector('input[type="text"], input[type="number"]');
+        if (input) return String(input.value || '');
+        return String(td.textContent || '').trim();
+    }
+
+    function measureWidth(text, font) {
+        measureCanvas.font = font;
+        return measureCanvas.measureText(text).width;
+    }
+
+    // 内容宽度 > 可视宽度 → 判定为被截断
+    function isClipped(td) {
+        const input = td.querySelector('input[type="text"], input[type="number"]');
+        if (input) {
+            const cs = window.getComputedStyle(input);
+            const padL = parseFloat(cs.paddingLeft) || 0;
+            const padR = parseFloat(cs.paddingRight) || 0;
+            const avail = input.clientWidth - padL - padR;
+            if (!avail || avail <= 0) return false;
+            const font = cs.font || (cs.fontStyle + ' ' + cs.fontVariant + ' ' + cs.fontWeight + ' ' +
+                cs.fontSize + '/' + cs.lineHeight + ' ' + cs.fontFamily);
+            return measureWidth(String(input.value || ''), font) > avail + 1;
+        }
+        return td.scrollWidth > td.clientWidth + 2;
+    }
+
+    function place(x, y) {
+        const w = tip.offsetWidth;
+        const h = tip.offsetHeight;
+        let left = x + 14;
+        let top = y + 20;
+        if (left + w > window.innerWidth - 8) left = x - w - 14;
+        if (left < 6) left = 6;
+        if (top + h > window.innerHeight - 8) top = y - h - 14;
+        if (top < 6) top = 6;
+        tip.style.left = left + 'px';
+        tip.style.top = top + 'px';
+    }
+
+    function show(td, x, y) {
+        const text = cellText(td);
+        if (!text || !isClipped(td)) { hide(); return; }
+        tip.textContent = text;
+        tip.classList.add('show');
+        place(x, y);
+    }
+
+    function hide() {
+        activeCell = null;
+        tip.classList.remove('show');
+    }
+
+    function resolveCell(target) {
+        if (!target || !target.closest) return null;
+        const td = target.closest('td');
+        if (!td || !wrapper.contains(td)) return null;
+        // 复选框列 / 操作列不提示
+        if (td.querySelector('input[type="checkbox"]') || td.querySelector('button')) return null;
+        return td;
+    }
+
+    wrapper.addEventListener('mouseover', function (e) {
+        const td = resolveCell(e.target);
+        if (!td) { hide(); return; }
+        activeCell = td;
+        show(td, e.clientX, e.clientY);
+    });
+
+    wrapper.addEventListener('mousemove', function (e) {
+        if (!activeCell) return;
+        const td = resolveCell(e.target);
+        if (td !== activeCell) {
+            activeCell = td;
+            if (td) { show(td, e.clientX, e.clientY); return; }
+            hide();
+            return;
+        }
+        place(e.clientX, e.clientY);
+    });
+
+    wrapper.addEventListener('mouseleave', hide);
+    wrapper.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hide(); });
+}
+
 function initWarehouseModule() {
     loadWarehouseData();
     setupWarehouseEventListeners();
     updateWarehouseMonthSelect();
     whSyncWarehouseSelects();
     whStartLiveClock();
+    whInstallCellTooltip();
 }
 
 function loadWarehouseData() {

@@ -2000,6 +2000,20 @@
 
                                 <div class="wh-table-wrapper" id="whTableWrapper">
                                     <table class="wh-table" id="whMaterialTable">
+                                        <!-- 列宽：table-layout:fixed 下浏览器只按“可见列”顺序应用 <col>，
+                                             会跳过 display:none 的隐藏列（仓库号/物料编码/批号/备注），
+                                             故此处按 17 个可见列声明。若日后恢复显示隐藏列，需同步补回对应 <col>。 -->
+                                        <colgroup>
+                                            <col style="width:3%">      <!-- 选择 -->
+                                            <col style="width:3.5%">    <!-- 序号 -->
+                                            <col style="width:15%">     <!-- 材料名称(规格) -->
+                                            <col style="width:4.5%">    <!-- 单位 -->
+                                            <col style="width:4.5%"><col style="width:6%"><col style="width:6.75%">   <!-- 期初 -->
+                                            <col style="width:4.5%"><col style="width:6%"><col style="width:6.75%">   <!-- 本期购入 -->
+                                            <col style="width:4.5%"><col style="width:6%"><col style="width:6.75%">   <!-- 本期领出 -->
+                                            <col style="width:4.5%"><col style="width:6%"><col style="width:6.75%">   <!-- 期末结存 -->
+                                            <col style="width:5%">      <!-- 操作 -->
+                                        </colgroup>
                                         <thead>
                                             <tr>
                                                 <th rowspan="2"><input type="checkbox" id="whSelectAll"></th>

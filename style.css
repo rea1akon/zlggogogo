@@ -7164,6 +7164,46 @@ tbody tr:last-child {
     table-layout: fixed;
 }
 
+/* 数据单元格：超长内容省略号显示（完整内容由悬浮气泡呈现，见 .wh-cell-tip） */
+#warehouse-detail-tab .wh-table tbody td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 材料名称列表头允许折行，避免“材料名称(规格)”被截断 */
+#warehouse-detail-tab .wh-table thead tr:first-child th:nth-child(5) {
+    white-space: normal;
+    word-break: break-all;
+    line-height: 1.15;
+}
+
+/* ===== 材料明细单元格悬浮提示气泡 ===== */
+.wh-cell-tip {
+    position: fixed;
+    z-index: 100000;
+    max-width: 420px;
+    padding: 7px 11px;
+    background: rgba(23, 32, 48, 0.96);
+    color: #eef2f8;
+    font-size: 12.5px;
+    line-height: 1.5;
+    font-family: inherit;
+    border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+    white-space: pre-wrap;
+    word-break: break-all;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.wh-cell-tip.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
 /* 表头文字：13px字号、1.25行高 */
 #warehouse-detail-tab .wh-table thead th {
     font-size: 12px;
