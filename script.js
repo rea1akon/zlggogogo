@@ -9610,6 +9610,16 @@ function handleToiletFormSubmit(e) {
     renderToiletList();
 }
 
+// 街道名称归一化：历史数据里存在「庄市」与「庄市街道」两种写法，统一后比较
+function normalizeStreetName(name) {
+    return String(name || '').replace(/\s/g, '').replace(/(街道|镇|片区|办事处)$/, '');
+}
+
+function streetIsSame(a, b) {
+    if (!a || !b) return false;
+    return a === b || normalizeStreetName(a) === normalizeStreetName(b);
+}
+
 function getFilteredToiletData() {
     let filtered = [...toiletData];
     
@@ -9618,7 +9628,7 @@ function getFilteredToiletData() {
     const keyword = document.getElementById('toiletSearchKeyword').value.trim().toLowerCase();
     
     if (street) {
-        filtered = filtered.filter(item => item.street === street);
+        filtered = filtered.filter(item => streetIsSame(item.street, street));
     }
     
     if (level) {
@@ -12114,6 +12124,7 @@ function initWarehouseModule() {
     loadWarehouseData();
     setupWarehouseEventListeners();
     updateWarehouseMonthSelect();
+    whSyncWarehouseSelects();
     whStartLiveClock();
 }
 
@@ -12145,6 +12156,12 @@ function setupWarehouseEventListeners() {
     const monthSelect = document.getElementById('whMonthSelect');
     if (monthSelect) monthSelect.addEventListener('change', whOnMonthChange);
     
+    const whSelect = document.getElementById('whWarehouseSelect');
+    if (whSelect) whSelect.addEventListener('change', whOnWarehouseChange);
+    
+    const whSelectTop = document.getElementById('whWarehouseSelectTop');
+    if (whSelectTop) whSelectTop.addEventListener('change', whOnWarehouseChange);
+    
     const addRowBtn = document.getElementById('whAddRow');
     if (addRowBtn) addRowBtn.addEventListener('click', whAddNewRow);
     
@@ -12175,6 +12192,71 @@ function updateWarehouseMonthSelect() {
 function getCurrentMonthWarehouseData() {
     const monthData = whAllMonthsData.find(m => m.month === whCurrentMonth);
     return monthData ? monthData.data : [];
+}
+
+/* ========== 仓库维度适配（V7.9：片所本级仓库 / 环卫仓库） ========== */
+const WH_WAREHOUSES = [
+    { code: 'CK001', name: '片所本级仓库' },
+    { code: 'CK002', name: '环卫仓库' }
+];
+let whCurrentWarehouse = 'all'; // 'all' | 'CK001' | 'CK002'
+
+function whWarehouseName(code) {
+    const found = WH_WAREHOUSES.find(w => w.code === code);
+    return found ? found.name : (code || '未分类');
+}
+
+// 两个标准文件的表内仓库号都是 CK001，只能靠导入文件名区分仓库
+function whResolveWarehouse(fileName, rowCode) {
+    const name = String(fileName || '');
+    if (name.indexOf('环卫') > -1) return 'CK002';
+    if (name.indexOf('庄骆贵') > -1 || name.indexOf('片所') > -1) return 'CK001';
+    const code = String(rowCode || '').trim().toUpperCase();
+    return code === 'CK002' ? 'CK002' : 'CK001';
+}
+
+function whRowWarehouse(row) {
+    return (row && row.warehouse) || 'CK001';
+}
+
+// 当前月份 + 仓库筛选后的数据（表格/看板/图表统一口径）
+function whScopeData() {
+    const rows = getCurrentMonthWarehouseData();
+    if (!whCurrentWarehouse || whCurrentWarehouse === 'all') return rows;
+    return rows.filter(r => whRowWarehouse(r) === whCurrentWarehouse);
+}
+
+// 带原始下标的行集合：筛选后仍以原始下标回写，保证编辑/删除指向正确行
+function whScopePairs() {
+    const pairs = getCurrentMonthWarehouseData().map((row, idx) => ({ row, idx }));
+    if (!whCurrentWarehouse || whCurrentWarehouse === 'all') return pairs;
+    return pairs.filter(p => whRowWarehouse(p.row) === whCurrentWarehouse);
+}
+
+function whSyncWarehouseSelects() {
+    const a = document.getElementById('whWarehouseSelect');
+    const b = document.getElementById('whWarehouseSelectTop');
+    if (a && a.value !== whCurrentWarehouse) a.value = whCurrentWarehouse;
+    if (b && b.value !== whCurrentWarehouse) b.value = whCurrentWarehouse;
+}
+
+function whOnWarehouseChange(e) {
+    whCurrentWarehouse = e.target.value || 'all';
+    whSyncWarehouseSelects();
+    whRenderTable();
+    whUpdateDashboard();
+    whRefreshCharts();
+}
+
+// 同一仓库内各自编号（两个仓库的序号互不干扰）
+function whRenumberMonth(monthEntry) {
+    if (!monthEntry) return;
+    const counters = {};
+    monthEntry.data.forEach(row => {
+        const wh = whRowWarehouse(row);
+        counters[wh] = (counters[wh] || 0) + 1;
+        row.serial = counters[wh];
+    });
 }
 
 function whFormatMoney(val) {
@@ -12211,14 +12293,16 @@ function whRenderTable() {
     const tbody = document.getElementById('whTableBody');
     if (!tbody) return;
     
-    const data = getCurrentMonthWarehouseData();
+    const pairs = whScopePairs();
     tbody.innerHTML = '';
     
-    data.forEach((row, index) => {
+    pairs.forEach((p, order) => {
+        const row = p.row;
+        const index = p.idx; // 原始下标：编辑/删除回写用
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><input type="checkbox" class="wh-row-checkbox" data-index="${index}"></td>
-            <td>${row.serial || index + 1}</td>
+            <td>${row.serial || order + 1}</td>
             <td class="wh-col-hidden"><input type="text" value="${row.warehouse || ''}" data-field="warehouse" data-index="${index}"></td>
             <td class="wh-col-hidden"><input type="text" value="${row.materialCode || ''}" data-field="materialCode" data-index="${index}"></td>
             <td><input type="text" value="${row.materialName || ''}" data-field="materialName" data-index="${index}"></td>
@@ -12291,7 +12375,7 @@ function whToggleSelectAll(e) {
 }
 
 function whUpdateTotals() {
-    const data = getCurrentMonthWarehouseData();
+    const data = whScopeData();
     const totalBegin = data.reduce((s, r) => s + (r.beginAmount || 0), 0);
     const totalBuy = data.reduce((s, r) => s + (r.buyAmount || 0), 0);
     const totalIssue = data.reduce((s, r) => s + (r.issueAmount || 0), 0);
@@ -12311,16 +12395,20 @@ function whUpdateTotals() {
 function whUpdateItemCount() {
     const countEl = document.getElementById('whItemCount');
     if (countEl) {
-        countEl.textContent = getCurrentMonthWarehouseData().length + ' 条物料';
+        const whLabel = (!whCurrentWarehouse || whCurrentWarehouse === 'all')
+            ? ''
+            : '（' + whWarehouseName(whCurrentWarehouse) + '）';
+        countEl.textContent = whScopeData().length + ' 条物料' + whLabel;
     }
 }
 
 function whUpdateDashboard() {
-    const data = getCurrentMonthWarehouseData();
+    const data = whScopeData();
     
     const totalAmount = data.reduce((s, r) => s + (r.endAmount || 0), 0);
     const totalQty = data.reduce((s, r) => s + (r.endQty || 0), 0);
-    const types = new Set(data.map(r => r.materialCode).filter(c => c));
+    // 物料种类：庄骆贵仓库的物料编码整列为空，用「编码或名称」兜底统计
+    const types = new Set(data.map(r => r.materialCode || r.materialName).filter(c => c));
     const issueAmount = data.reduce((s, r) => s + (r.issueAmount || 0), 0);
     const purchaseAmount = data.reduce((s, r) => s + (r.buyAmount || 0), 0);
     
@@ -12349,10 +12437,13 @@ function whAddNewRow() {
     }
     
     const dataIdx = whAllMonthsData.findIndex(m => m.month === whCurrentMonth);
+    const targetWarehouse = (!whCurrentWarehouse || whCurrentWarehouse === 'all')
+        ? 'CK001'
+        : whCurrentWarehouse; // 当前筛选了仓库时，新增行归入该仓库
     const newRow = {
         tempId: Date.now() + Math.random(),
         serial: whAllMonthsData[dataIdx].data.length + 1,
-        warehouse: 'CK001',
+        warehouse: targetWarehouse,
         materialCode: '',
         materialName: '',
         batchNo: '',
@@ -12365,6 +12456,7 @@ function whAddNewRow() {
     };
     
     whAllMonthsData[dataIdx].data.push(newRow);
+    whRenumberMonth(whAllMonthsData[dataIdx]);
     saveWarehouseData();
     whRenderTable();
     whUpdateDashboard();
@@ -12376,7 +12468,7 @@ function whDeleteRow(index) {
     if (monthIdx === -1) return;
     
     whAllMonthsData[monthIdx].data.splice(index, 1);
-    whAllMonthsData[monthIdx].data.forEach((item, idx) => item.serial = idx + 1);
+    whRenumberMonth(whAllMonthsData[monthIdx]);
     saveWarehouseData();
     whRenderTable();
     whUpdateDashboard();
@@ -12397,7 +12489,7 @@ function whDeleteSelectedRows() {
         whAllMonthsData[monthIdx].data.splice(index, 1);
     });
     
-    whAllMonthsData[monthIdx].data.forEach((item, idx) => item.serial = idx + 1);
+    whRenumberMonth(whAllMonthsData[monthIdx]);
     whSelectedRows = [];
     saveWarehouseData();
     whRenderTable();
@@ -12415,13 +12507,19 @@ function whImportExcel() {
         const file = e.target.files[0];
         if (!file) return;
         
+        // 两个标准文件的表内仓库号都是 CK001，按文件名判定归属仓库
+        const targetWh = whResolveWarehouse(file.name, '');
+        
         try {
             const data = await file.arrayBuffer();
             const workbook = XLSX.read(data, { cellNF: true, cellText: true });
             const sheets = workbook.SheetNames;
             const importedMonths = [];
+            // 标准文件以 6 位月份名作工作表（202608）；若没有则兼容处理全部工作表
+            let monthSheets = sheets.filter(s => /^\d{6}$/.test(String(s).trim()));
+            if (monthSheets.length === 0) monthSheets = sheets;
             
-            for (let sName of sheets) {
+            for (let sName of monthSheets) {
                 const sheet = workbook.Sheets[sName];
                 const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
                 
@@ -12430,17 +12528,20 @@ function whImportExcel() {
                 const dataRows = [];
                 for (let i = 3; i < rows.length; i++) {
                     const row = rows[i];
-                    if (!row || row.length < 3) continue;
+                    if (!row || row.length < 4) continue;
                     
                     const materialCode = row[2] ? String(row[2]).trim() : '';
-                    if (materialCode === '' || materialCode === '合计') continue;
+                    const materialName = row[3] ? String(row[3]).trim() : '';
+                    if (materialCode === '合计' || materialName === '合计') continue;
+                    // 庄骆贵仓库的物料编码整列为空，此时以材料名称为准，两者都空才跳过
+                    if (!materialCode && !materialName) continue;
                     
                     const obj = {
                         tempId: Date.now() + Math.random() + i,
                         serial: Number(row[0]) || i - 2,
-                        warehouse: row[1] ? String(row[1]) : 'CK001',
+                        warehouse: targetWh,
                         materialCode: materialCode,
-                        materialName: row[3] ? String(row[3]) : '',
+                        materialName: materialName,
                         batchNo: row[4] ? String(row[4]) : '',
                         unit: row[5] ? String(row[5]) : '',
                         beginQty: Number(row[6]) || 0,
@@ -12463,26 +12564,55 @@ function whImportExcel() {
                 }
                 
                 if (dataRows.length) {
-                    importedMonths.push({ month: sName, data: dataRows });
+                    importedMonths.push({ month: String(sName).trim(), data: dataRows, warehouse: targetWh });
                 }
             }
             
             if (importedMonths.length === 0) {
-                showToast('未检测到有效数据，请确保Excel有3行表头且第4行起为数据', 'error');
+                showToast('未检测到有效数据，请确保Excel前3行为表头、第4行起为数据', 'error');
                 return;
             }
             
-            whAllMonthsData = importedMonths;
+            // 合并导入：同月份只替换「本仓库」的数据，其它仓库与其它月份原样保留，
+            // 避免导入第二个仓库时把已上传的数据整体覆盖掉。
+            let newMonthCount = 0;
+            let replacedCount = 0;
+            let addedCount = 0;
+            importedMonths.forEach(im => {
+                const idx = whAllMonthsData.findIndex(m => m.month === im.month);
+                if (idx === -1) {
+                    whAllMonthsData.push({ month: im.month, data: im.data });
+                    newMonthCount++;
+                } else {
+                    const existing = whAllMonthsData[idx].data;
+                    const kept = existing.filter(r => whRowWarehouse(r) !== im.warehouse);
+                    replacedCount += existing.length - kept.length;
+                    whAllMonthsData[idx].data = kept.concat(im.data);
+                }
+                addedCount += im.data.length;
+                whRenumberMonth(whAllMonthsData.find(m => m.month === im.month));
+            });
+            whAllMonthsData.sort((a, b) => String(a.month).localeCompare(String(b.month)));
+            
             const months = whAllMonthsData.map(m => m.month).sort();
-            whCurrentMonth = months[months.length - 1];
+            if (!whCurrentMonth || months.indexOf(whCurrentMonth) === -1) {
+                whCurrentMonth = months[months.length - 1];
+            }
             
             saveWarehouseData();
             updateWarehouseMonthSelect();
+            whSyncWarehouseSelects();
             whRenderTable();
             whUpdateDashboard();
             whRefreshCharts();
             
-            showToast(`成功导入 ${importedMonths.length} 个月份数据`, 'success');
+            showToast(
+                '导入成功：' + whWarehouseName(targetWh) + ' · ' + importedMonths.length + ' 个月份 · '
+                + addedCount + ' 条数据'
+                + (replacedCount ? '（同仓库更新 ' + replacedCount + ' 条）' : '')
+                + (newMonthCount ? '（新增 ' + newMonthCount + ' 个月份）' : ''),
+                'success'
+            );
         } catch (error) {
             showToast('导入失败：' + error.message, 'error');
         }
@@ -12492,7 +12622,7 @@ function whImportExcel() {
 }
 
 function whExportCurrentMonth() {
-    const data = getCurrentMonthWarehouseData();
+    const data = whScopeData();
     if (!whCurrentMonth || data.length === 0) {
         showToast('无数据可导出', 'error');
         return;
@@ -12523,9 +12653,12 @@ function whExportCurrentMonth() {
     const ws = XLSX.utils.aoa_to_sheet(sheetData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, whCurrentMonth);
-    XLSX.writeFile(wb, `材料库存_${whCurrentMonth}.xlsx`);
+    const whSuffix = (!whCurrentWarehouse || whCurrentWarehouse === 'all')
+        ? '全部仓库'
+        : whWarehouseName(whCurrentWarehouse);
+    XLSX.writeFile(wb, `材料库存_${whCurrentMonth}_${whSuffix}.xlsx`);
     
-    showToast('导出成功', 'success');
+    showToast('导出成功：' + whSuffix, 'success');
 }
 
 function whDownloadTemplate() {
@@ -12533,18 +12666,23 @@ function whDownloadTemplate() {
     const headerRow1 = ['序号', '仓库号', '物料编码', '材料名称（规格）', '批号', '', '期初', '', '', '本期购入', '', '', '本期领出', '', '', '期末结存', '', '', '备注'];
     const headerRow2 = ['', '', '', '', '', '单位', '数量', '单价', '金额', '数量', '单价', '金额', '数量', '单价', '金额', '数量', '单价', '金额', ''];
     sheetData.push(headerRow1, headerRow2, []);
-    sheetData.push([1, 'CK001', 'WL000001', '示例材料', '批号01', '把', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '']);
+    // 两个仓库的示例行：CK001 = 片所本级仓库，CK002 = 环卫仓库
+    sheetData.push([1, 'CK001', 'WL000001', '示例材料（片所本级）', '批号01', '把', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '']);
+    sheetData.push([2, 'CK002', 'WL000002', '示例材料（环卫）', '批号02', '箱', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '']);
     
     const ws = XLSX.utils.aoa_to_sheet(sheetData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '模板');
+    // 工作表名即月份（YYYYMM），决定数据归属月份
+    XLSX.utils.book_append_sheet(wb, ws, whCurrentMonth || '202608');
     XLSX.writeFile(wb, '材料库存导入模板.xlsx');
     
-    showToast('模板下载成功', 'success');
+    showToast('模板下载成功：工作表名=月份，仓库由文件名区分', 'success');
 }
 
 function whRefreshCharts() {
-    const data = getCurrentMonthWarehouseData();
+    // TOP10 / 趋势 / 领出对比 跟随仓库筛选；「各仓库金额占比」始终用全量数据，体现两个仓库的比例
+    const data = whScopeData();
+    const allData = getCurrentMonthWarehouseData();
     
     if (whTop10Chart) { whTop10Chart.destroy(); whTop10Chart = null; }
     if (whWarehouseChart) { whWarehouseChart.destroy(); whWarehouseChart = null; }
@@ -12613,11 +12751,16 @@ function whRefreshCharts() {
     });
     
     const warehouseMap = new Map();
-    data.forEach(r => {
-        const wh = r.warehouse || 'CK001';
-        warehouseMap.set(wh, (warehouseMap.get(wh) || 0) + (r.endAmount || 0));
+    // 始终按真实仓库全量统计，标签显示仓库中文名
+    WH_WAREHOUSES.forEach(w => warehouseMap.set(w.name, 0));
+    allData.forEach(r => {
+        const name = whWarehouseName(whRowWarehouse(r));
+        warehouseMap.set(name, (warehouseMap.get(name) || 0) + (r.endAmount || 0));
     });
-    const pieData = Array.from(warehouseMap.entries()).map(([name, value]) => ({ name, value }));
+    const pieData = Array.from(warehouseMap.entries())
+        .filter(([, value]) => value > 0)
+        .map(([name, value]) => ({ name, value }));
+    if (pieData.length === 0) pieData.push({ name: '暂无库存', value: 0 });
     
     whWarehouseChart = new Chart(warehouseCanvas, {
         type: 'doughnut',
@@ -12669,7 +12812,11 @@ function whRefreshCharts() {
     const trendMonths = whAllMonthsData.map(m => m.month).sort();
     const trendAmounts = trendMonths.map(mon => {
         const mData = whAllMonthsData.find(m => m.month === mon);
-        return mData ? mData.data.reduce((sum, row) => sum + (row.endAmount || 0), 0) : 0;
+        if (!mData) return 0;
+        const rows = (!whCurrentWarehouse || whCurrentWarehouse === 'all')
+            ? mData.data
+            : mData.data.filter(r => whRowWarehouse(r) === whCurrentWarehouse);
+        return rows.reduce((sum, row) => sum + (row.endAmount || 0), 0);
     });
     
     whTrendChart = new Chart(trendCanvas, {
@@ -12930,11 +13077,13 @@ function whClearSearch() {
 }
 
 function whPerformSearch(keyword) {
-    const data = getCurrentMonthWarehouseData();
+    const pairs = whScopePairs();
     keyword = keyword.toLowerCase();
     
     const matches = [];
-    data.forEach((row, idx) => {
+    pairs.forEach(p => {
+        const row = p.row;
+        const idx = p.idx;
         const nameMatch = (row.materialName || '').toLowerCase().includes(keyword);
         const codeMatch = (row.materialCode || '').toLowerCase().includes(keyword);
         const specMatch = (row.spec || '').toLowerCase().includes(keyword);
@@ -13030,12 +13179,12 @@ function whHighlightTableRows(matches, keyword) {
     const tbody = document.getElementById('whTableBody');
     if (!tbody) return;
     
-    const data = getCurrentMonthWarehouseData();
+    const pairs = whScopePairs();
     tbody.innerHTML = '';
     
     if (matches.length === 0) {
-        data.forEach((row, index) => {
-            whRenderTableRow(row, index, false, '');
+        pairs.forEach(p => {
+            whRenderTableRow(p.row, p.idx, false, '');
         });
         return;
     }
@@ -13043,7 +13192,9 @@ function whHighlightTableRows(matches, keyword) {
     const matchIndices = new Set(matches.map(m => m.index));
     const matchMap = new Map(matches.map(m => [m.index, m.fields]));
     
-    data.forEach((row, index) => {
+    pairs.forEach(p => {
+        const row = p.row;
+        const index = p.idx;
         const isMatch = matchIndices.has(index);
         const fields = matchMap.get(index) || {};
         whRenderTableRow(row, index, isMatch, keyword, fields);

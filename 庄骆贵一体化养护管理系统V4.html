@@ -1258,9 +1258,9 @@
                                             <label for="toiletFilterStreet">所属街道</label>
                                             <select id="toiletFilterStreet" class="filter-select">
                                                 <option value="">全部</option>
-                                                <option value="庄市">庄市</option>
-                                                <option value="骆驼">骆驼</option>
-                                                <option value="贵驷">贵驷</option>
+                                                <option value="贵驷街道">贵驷街道</option>
+                                                <option value="庄市街道">庄市街道</option>
+                                                <option value="骆驼街道">骆驼街道</option>
                                             </select>
                                         </div>
                                         <div class="filter-group">
@@ -1825,6 +1825,11 @@
                                 <div class="wh-toolbar">
                                     <div class="wh-toolbar-left">
                                         <h2 class="wh-toolbar-title">📊 仓库数据概览</h2>
+                                        <select id="whWarehouseSelectTop" class="wh-select" style="margin-left:14px;min-width:150px;">
+                                            <option value="all">全部仓库</option>
+                                            <option value="CK001">片所本级仓库</option>
+                                            <option value="CK002">环卫仓库</option>
+                                        </select>
                                     </div>
                                     <div class="wh-toolbar-right">
                                         <button class="wh-btn wh-btn-primary" id="whImportExcel">📥 导入Excel</button>
@@ -1954,6 +1959,12 @@
                                         <span>📅 选择月份：</span>
                                         <select id="whMonthSelect" class="wh-select">
                                             <option value="">请选择月份</option>
+                                        </select>
+                                        <span style="margin-left:8px;">🏭 仓库：</span>
+                                        <select id="whWarehouseSelect" class="wh-select" style="min-width:140px;">
+                                            <option value="all">全部仓库</option>
+                                            <option value="CK001">片所本级仓库</option>
+                                            <option value="CK002">环卫仓库</option>
                                         </select>
                                         <span class="wh-badge" id="whItemCount">0 条物料</span>
                                     </div>
