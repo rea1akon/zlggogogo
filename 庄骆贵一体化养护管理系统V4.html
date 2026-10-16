@@ -242,6 +242,7 @@
                                                 <option value="庄市">庄市</option>
                                                 <option value="骆驼">骆驼</option>
                                                 <option value="贵驷">贵驷</option>
+                                                <option value="车队">车队</option>
                                             </select>
                                             <div class="error-message" id="areaError"></div>
                                         </div>
@@ -335,12 +336,14 @@
                                         </div>
                                         <div class="filter-group">
                                             <label for="filterArea">所在片区</label>
+                                            <!-- 基础选项；数据中出现的其它片区值由 syncFilterAreaOptions() 动态补到末尾 -->
                                             <select id="filterArea" class="filter-select">
                                                 <option value="">全部</option>
                                                 <option value="片所本级">片所本级</option>
                                                 <option value="庄市">庄市</option>
                                                 <option value="骆驼">骆驼</option>
                                                 <option value="贵驷">贵驷</option>
+                                                <option value="车队">车队</option>
                                             </select>
                                         </div>
                                         <div class="filter-group">

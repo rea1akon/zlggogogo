@@ -321,37 +321,84 @@ function handleEmploymentTypeChange(e) {
     }
 }
 
+/* ========== 片区选项单一数据源（V8.1） ==========
+ * 原先「所在片区」在 handlePositionChange / resetForm / editEmployee 三处各写一份，
+ * HTML 里另有两份静态选项，加一个片区要改 5 处。现统一到此处维护。
+ */
+const AREA_BASE_OPTIONS = ['片所本级', '庄市', '骆驼', '贵驷', '车队'];
+// 绿化作业人员按绿化作业片区分（庄一/庄二/庄三），与默认片区体系不同
+const AREA_GREENERY_OPTIONS = ['庄一', '庄二', '庄三', '骆驼'];
+
+function getAreaValues(position) {
+    return String(position || '') === '绿化作业人员' ? AREA_GREENERY_OPTIONS : AREA_BASE_OPTIONS;
+}
+
+/**
+ * 填充片区下拉。
+ * keepLegacy=true 时，若 presetValue 不在选项内（如历史数据里的「默认」「蛟川」），
+ * 会动态追加该项并选中，保证编辑回填不丢值、保存时不被清空。
+ */
+function fillAreaSelect(selectEl, position, presetValue, keepLegacy) {
+    if (!selectEl) return;
+    let html = '<option value="">请选择</option>';
+    getAreaValues(position).forEach(function (v) {
+        html += '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>';
+    });
+    selectEl.innerHTML = html;
+
+    const target = presetValue == null ? '' : String(presetValue).trim();
+    if (target) {
+        const exists = Array.prototype.some.call(selectEl.options, function (o) { return o.value === target; });
+        if (!exists) {
+            if (!keepLegacy) { selectEl.value = ''; return; }
+            const opt = document.createElement('option');
+            opt.value = target;
+            opt.textContent = target;
+            opt.dataset.legacy = '1';
+            selectEl.appendChild(opt);
+        }
+    }
+    selectEl.value = target;
+}
+
 function handlePositionChange(e) {
     const position = e.target.value;
     const areaSelect = document.getElementById('area');
-    
-    const defaultOptions = [
-        { value: '', text: '请选择' },
-        { value: '片所本级', text: '片所本级' },
-        { value: '庄市', text: '庄市' },
-        { value: '骆驼', text: '骆驼' },
-        { value: '贵驷', text: '贵驷' }
-    ];
-    
-    const greeneryOptions = [
-        { value: '', text: '请选择' },
-        { value: '庄一', text: '庄一' },
-        { value: '庄二', text: '庄二' },
-        { value: '庄三', text: '庄三' },
-        { value: '骆驼', text: '骆驼' }
-    ];
-    
-    const options = position === '绿化作业人员' ? greeneryOptions : defaultOptions;
-    
-    const currentValue = areaSelect.value;
-    
-    areaSelect.innerHTML = options.map(option => 
-        `<option value="${option.value}">${option.text}</option>`
-    ).join('');
-    
-    if (options.some(option => option.value === currentValue)) {
-        areaSelect.value = currentValue;
-    }
+    // 切换岗位时重建选项：原值仍在新选项内则保留，否则清空重选
+    fillAreaSelect(areaSelect, position, areaSelect.value, false);
+}
+
+/**
+ * 筛选下拉与数据联动：
+ * 数据里出现过、但不在基础选项内的片区值（如历史导入的「默认」）补到末尾，
+ * 否则这些记录在筛选里找不到对应项。选项集合无变化时不重建，避免闪烁。
+ */
+function syncFilterAreaOptions() {
+    const select = document.getElementById('filterArea');
+    if (!select) return;
+
+    const extras = [];
+    employees.forEach(function (emp) {
+        const a = String(emp.area == null ? '' : emp.area).trim();
+        if (a && AREA_BASE_OPTIONS.indexOf(a) === -1 && extras.indexOf(a) === -1) extras.push(a);
+    });
+
+    const signature = AREA_BASE_OPTIONS.join('|') + '||' + extras.join('|');
+    if (select.dataset.areaSignature === signature) return;
+
+    const current = select.value;
+    let html = '<option value="">全部</option>';
+    AREA_BASE_OPTIONS.forEach(function (v) {
+        html += '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>';
+    });
+    extras.forEach(function (v) {
+        html += '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>';
+    });
+    select.innerHTML = html;
+    select.dataset.areaSignature = signature;
+
+    const stillValid = Array.prototype.some.call(select.options, function (o) { return o.value === current; });
+    select.value = stillValid ? current : '';
 }
 
 function handleIdCardInput(e) {
@@ -667,14 +714,22 @@ function handleFormSubmit(e) {
         hireDate: document.getElementById('hireDate').value,
         address: document.getElementById('address').value.trim(),
         remarks: document.getElementById('remarks').value.trim(),
-        createdAt: employeeId ? employees.find(emp => emp.id === employeeId).createdAt : new Date().toISOString(),
+        createdAt: employeeId
+            ? ((employees.find(emp => emp.id === employeeId) || {}).createdAt || new Date().toISOString())
+            : new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
 
     if (employeeId) {
         const index = employees.findIndex(emp => emp.id === employeeId);
-        employees[index] = employeeData;
-        showToast('员工信息更新成功', 'success');
+        if (index > -1) {
+            employees[index] = employeeData;
+            showToast('员工信息更新成功', 'success');
+        } else {
+            // 原记录已不在列表中（如云端刷新/去重后），按新增落库，避免静默丢失
+            employees.unshift(employeeData);
+            showToast('原记录已不存在，已作为新记录保存', 'warning');
+        }
     } else {
         employees.unshift(employeeData);
         showToast('员工添加成功', 'success');
@@ -700,18 +755,7 @@ function resetForm() {
     document.getElementById('submitBtn').textContent = '保存';
     document.getElementById('subcontractTypeRow').style.display = 'none';
     
-    const areaSelect = document.getElementById('area');
-    const defaultOptions = [
-        { value: '', text: '请选择' },
-        { value: '片所本级', text: '片所本级' },
-        { value: '庄市', text: '庄市' },
-        { value: '骆驼', text: '骆驼' },
-        { value: '贵驷', text: '贵驷' }
-    ];
-    
-    areaSelect.innerHTML = defaultOptions.map(option => 
-        `<option value="${option.value}">${option.text}</option>`
-    ).join('');
+    fillAreaSelect(document.getElementById('area'), '', '');
     
     clearErrors();
 }
@@ -720,6 +764,8 @@ function renderEmployeeList(data = employees) {
     const tbody = document.getElementById('employeeTableBody');
     const emptyMessage = document.getElementById('emptyMessage');
     const totalCount = document.getElementById('totalCount');
+
+    syncFilterAreaOptions();
 
     totalCount.textContent = data.length;
 
@@ -854,29 +900,8 @@ function editEmployee(id) {
         subcontractTypeRow.style.display = 'none';
     }
 
-    const areaSelect = document.getElementById('area');
-    const defaultOptions = [
-        { value: '', text: '请选择' },
-        { value: '片所本级', text: '片所本级' },
-        { value: '庄市', text: '庄市' },
-        { value: '骆驼', text: '骆驼' },
-        { value: '贵驷', text: '贵驷' }
-    ];
-    
-    const greeneryOptions = [
-        { value: '', text: '请选择' },
-        { value: '庄一', text: '庄一' },
-        { value: '庄二', text: '庄二' },
-        { value: '庄三', text: '庄三' },
-        { value: '骆驼', text: '骆驼' }
-    ];
-    
-    const options = employee.position === '绿化作业人员' ? greeneryOptions : defaultOptions;
-    areaSelect.innerHTML = options.map(option => 
-        `<option value="${option.value}">${option.text}</option>`
-    ).join('');
-    
-    areaSelect.value = employee.area;
+    // 保留历史片区值：不在标准选项内（如「默认」「蛟川」）时动态追加，避免编辑回填后被清空
+    fillAreaSelect(document.getElementById('area'), employee.position, employee.area, true);
 
     updateRetirementDate();
     switchToTab('add');
