@@ -3,6 +3,7 @@
 import { route } from './router.js';
 import { corsHeaders, preflight, fail, json } from './lib/resp.js';
 import { ApiError } from './lib/errors.js';
+import { syncGps } from './handlers/gps.js';
 
 export default {
   async fetch(request, env) {
@@ -45,5 +46,14 @@ export default {
       Object.entries(cors).forEach(([k, v]) => response.headers.set(k, v));
       return response;
     }
+  },
+
+  // Cron Trigger：每 20 分钟（北京时间 07:00–21:59）拉取 GPS 里程写入 D1
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      syncGps(env).catch((err) => {
+        console.error('[gps cron] 同步失败:', err && err.message);
+      })
+    );
   },
 };

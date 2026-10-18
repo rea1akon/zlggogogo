@@ -5,6 +5,7 @@ import { ApiError, notFound, badRequest } from './lib/errors.js';
 import { getResource, resourceMeta, RESOURCES } from './resources.js';
 import * as crud from './handlers/crud.js';
 import * as kv from './handlers/kv.js';
+import { syncGps, getMileage } from './handlers/gps.js';
 import { login, logout, currentUser, requireWriteRole, bootstrapAdmin, authStatus } from './lib/auth.js';
 import { redact, needRedact } from './lib/redact.js';
 import { logOperation } from './lib/log.js';
@@ -147,6 +148,21 @@ export async function route(request, env) {
       return ok(await kv.removeValue(env, namespace, k));
     }
     return methodNotAllowed(request, env, 'GET, PUT, DELETE');
+  }
+
+  // ---------- GPS 车载里程（只读查询 + 手动同步） ----------
+  if (path === '/api/gps/mileage') {
+    if (method !== 'GET') return methodNotAllowed(request, env, 'GET');
+    return ok(await getMileage(env, url));
+  }
+  if (path === '/api/gps/sync') {
+    if (method !== 'POST' && method !== 'GET') return methodNotAllowed(request, env, 'POST');
+    const key = request.headers.get('x-gps-sync-key') || url.searchParams.get('key');
+    if (!env.GPS_SYNC_KEY || key !== env.GPS_SYNC_KEY) {
+      throw new ApiError(403, 'FORBIDDEN', '同步密钥不正确');
+    }
+    const full = url.searchParams.get('full') === '1';
+    return ok(await syncGps(env, { full, acc: true }));
   }
 
   // ---------- 通用资源 CRUD ----------

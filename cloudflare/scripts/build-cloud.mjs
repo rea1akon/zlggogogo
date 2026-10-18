@@ -14,7 +14,7 @@ const FUNCTIONS_SRC = join(CLOUDFLARE_DIR, 'functions');
 const FUNCTIONS_OUT = join(OUT, 'functions');
 
 const MAIN = '庄骆贵一体化养护管理系统V4.html';
-const STATIC_FILES = ['index.html', MAIN, 'script.js', 'style.css', 'back.mp4'];
+const STATIC_FILES = ['index.html', MAIN, 'script.js', 'style.css', 'back.mp4', 'vehicle-runtime.js'];
 const ADAPTER_SRC = join(CLOUDFLARE_DIR, 'tools', 'cloud-sync.js');
 const VERSION_JSON = join(CLOUDFLARE_DIR, 'config', 'version.json');
 const ANCHOR = '<script src="script.js"></script>';

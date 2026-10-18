@@ -23,3 +23,6 @@ backup/
 # WorkBuddy 项目辅助目录
 .workbuddy/
 zlg-v4-cloud/
+
+# wrangler 本地缓存
+.wrangler/

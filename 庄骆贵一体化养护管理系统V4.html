@@ -1327,6 +1327,7 @@
                             <button class="tab-btn active" data-tab="vehicle-dashboard">维修一张图</button>
                             <button class="tab-btn" data-tab="vehicle-info">车辆基本信息</button>
                             <button class="tab-btn" data-tab="vehicle-repair">车辆维修</button>
+                            <button class="tab-btn" data-tab="vehicle-runtime">车辆运行数据</button>
                             <button class="tab-btn" data-tab="vehicle-mileage">车辆里程</button>
                         </div>
                         
@@ -1727,6 +1728,10 @@
                             </div>
                         </div>
                         
+                        <div class="tab-content" id="vehicle-runtime-tab">
+                            <div class="vrd-loading" style="padding:40px;text-align:center;color:#9aa5b5;font-size:13px">正在加载车辆运行数据…</div>
+                        </div>
+
                         <div class="tab-content" id="vehicle-mileage-tab">
                             <div class="list-container">
                                 <div class="list-header">
@@ -3760,5 +3765,6 @@
     </div>
 
     <script src="script.js"></script>
+    <script src="vehicle-runtime.js?v=8.3"></script>
 </body>
 </html>
